@@ -4,8 +4,8 @@ __lua__
 -- constants
 tile_width=4
 tile_height=4
-num_cols=flr(128/tile_width)
-num_rows=flr(128/tile_height)
+num_cols=34
+num_rows=24
 entity_classes={
 	["player"]={
 		["width"]=12,
@@ -26,7 +26,7 @@ entity_classes={
 				}
 			}
 		end,
-		["pre_move"]=function(entity)
+		["pre_update"]=function(entity)
 			entity.vy+=0.1
 			entity.state_frames+=1
 			if entity.is_grounded then
@@ -48,7 +48,7 @@ entity_classes={
 						entity.state_frames=0
 					end
 				end
-				-- move left/right when a/d is pressed
+				-- move left/right when arrow keys are pressed
 				entity.vx=0
 				if entity.state=='default' then
 					if btn(0) then
@@ -63,19 +63,19 @@ entity_classes={
 		end,
 		["update"]=function(entity)
 			-- land on the bottom of the play area
-			if entity.y>level.play_area_bottom-entity.height+1 then
-				entity.y=level.play_area_bottom-entity.height+1
+			if entity.y>(num_rows-1)*tile_height-entity.height then
+				entity.y=(num_rows-1)*tile_height-entity.height
 				entity.vy=min(entity.vy,0)
 				entity.is_grounded=true
 			end
 			-- hit the left wall of the play area
-			if entity.x<level.play_area_left then
-				entity.x=level.play_area_left
+			if entity.x<4 then
+				entity.x=4
 				entity.vx=max(entity.vx,0)
 			end
 			-- hit the right wall of the play area
-			if entity.x>level.play_area_right-entity.width+1 then
-				entity.x=level.play_area_right-entity.width+1
+			if entity.x>67-entity.width+1 then
+				entity.x=67-entity.width+1
 				entity.vx=min(entity.vx,0)
 			end
 		end,
@@ -92,37 +92,49 @@ entity_classes={
 		end
 	},
 	["ball"]={
-		["width"]=16,
-		["height"]=16,
+		["width"]=3,
+		["height"]=3,
 		["init"]=function(entity,args)
 			entity.x=args.x
 			entity.y=args.y
 			entity.vx=args.vx
 			entity.vy=args.vy
+			entity.gravity=1
+			entity.vertical_energy=0.5*entity.vy*entity.vy+entity.gravity*(127-entity.y)
 			entity.col_left=x_to_col(entity.x)
 			entity.col_right=x_to_col(entity.x+entity.width-1)
 			entity.row_top=y_to_row(entity.y)
 			entity.row_bottom=y_to_row(entity.y+entity.height-1)
 		end,
-		["pre_move"]=function(entity)
+		["pre_update"]=function(entity)
 			entity.prev_x=entity.x
 			entity.prev_y=entity.y
-			entity.vy+=0.2
+			entity.vy+=entity.gravity
 		end,
 		["update"]=function(entity)
-			check_for_tile_collisions_2(entity)
+			check_for_tile_collisions(entity)
 		end,
 		["can_collide_against_tile"]=function(entity,tile)
 			return true -- return true to indicate a collision
 		end,
-		["on_collide_with_tiles"]=function(entity,tiles,dir)
+		["on_collide_with_tiles"]=function(entity,tiles_hit,dir)
 			if dir=='left' or dir=='right' then
 				entity.vx*=-1
 			elseif dir=='top' or dir=='bottom' then
-				entity.vy*=-1
+				local v=sqrt(2*(entity.vertical_energy-entity.gravity*(127-entity.y)))
+				if entity.vy>0 then
+					entity.vy=-v
+				else
+					entity.vy=v
+				end
 			end
-			foreach(tiles,function(tile)
-				tile.sprite+=1
+			foreach(tiles_hit,function(tile)
+				if tile.is_destructible then
+					tile.hp-=1
+					if tile.hp<=0 then
+						tiles[tile.col][tile.row]=false
+					end
+				end
 			end)
 			return true -- return true to end movement
 		end,
@@ -139,46 +151,45 @@ entity_classes={
 }
 tile_legend={
 	["x"]={
-		["sprite"]=6
+		["sprite"]=nil,
+		["is_destructible"]=false,
+		["hp"]=0
+	},
+	["g"]={
+		["sprite"]=6,
+		["is_destructible"]=true,
+		["hp"]=1
+	},
+	["r"]={
+		["sprite"]=7,
+		["is_destructible"]=true,
+		["hp"]=1
 	}
 }
 levels={
 	{
-		["play_area_bottom"]=103,
-		["play_area_left"]=4,
-		["play_area_right"]=123,
 		["tile_map"]={
 			"                                ",
-			"                                ",
-			"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-			"x                              x",
-			"x                              x",
-			"x                              x",
-			"x                              x",
-			"x                              x",
-			"x                              x",
-			"x                              x",
-			"x                       xx     x",
-			"x                       xx     x",
-			"x                       xx     x",
-			"x                       xx     x",
-			"x                       xx     x",
-			"x                       xx     x",
-			"x                       xx     x",
-			"x                       xx     x",
-			"x                       xx     x",
-			"x                       xx     x",
-			"x                       xx     x",
-			"x                              x",
-			"x                              x",
-			"x                              x",
-			"x                              x",
-			"x                              x",
-			"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-			"                                ",
-			"                                ",
-			"                                ",
-			"                                ",
+			"                          ggg   ",
+			"                         ggg    ",
+			"                         gggg   ",
+			"                          ggg   ",
+			"                          gggg  ",
+			"                         ggggg  ",
+			"                         gg ggg ",
+			"                       ggg   gg ",
+			"                      ggg    gg ",
+			"                    rrrr     gg ",
+			"                   rrrr r    gg ",
+			"                   rrrr r   gg  ",
+			"                   rrrrrr  ggg  ",
+			"                   rrrrrr  gg   ",
+			"                    rrrr rrrr   ",
+			"                        rrrr r  ",
+			"                        rrrr r  ",
+			"                        rrrrrr  ",
+			"                        rrrrrr  ",
+			"                         rrrr   ",
 			"                                ",
 		}
 	}
@@ -191,7 +202,6 @@ prev_btns={}
 
 
 -- scene vars
-debug_text=""
 actual_frame=0
 scene=nil -- "title_screen" / "game"
 scene_frame=0
@@ -200,6 +210,7 @@ bg_color=0
 
 -- game vars
 level=nil
+tiles={}
 entities={}
 new_entities={}
 
@@ -241,9 +252,6 @@ function _draw()
 	elseif scene=="game" then
 		draw_game()
 	end
-
-	-- debug
-	print(debug_text,2,120,7)
 end
 
 
@@ -273,7 +281,7 @@ function init_game()
 	init_blank_tiles()
 	-- load the level
 	level=levels[1]
-	create_tiles_from_map(level.tile_map)
+	create_inner_tiles_from_map(level.tile_map)
 	create_entity("player",{
 		["x"]=30,
 		["y"]=60
@@ -281,8 +289,8 @@ function init_game()
 	create_entity("ball",{
 		["x"]=60.5,
 		["y"]=58,
-		["vx"]=5.1, -- -5,
-		["vy"]=-5.1 -- -5
+		["vx"]=8.5,
+		["vy"]=8.5
 	})
 	foreach(new_entities,add_entity_to_game)
 	new_entities={}
@@ -290,7 +298,18 @@ end
 
 function update_game()
 	-- update entities
-	foreach(entities,update_entity)
+	foreach(entities,function(entity)
+		entity.frames_alive+=1
+		entity.pre_update(entity)
+	end)
+	foreach(entities,function(entity)
+		entity.x+=entity.vx
+		entity.y+=entity.vy
+		entity.update(entity)
+	end)
+	foreach(entities,function(entity)
+		entity.post_update(entity)
+	end)
 
 	-- new entities get added at the end of the frame
 	foreach(new_entities,add_entity_to_game)
@@ -301,15 +320,18 @@ function update_game()
 end
 
 function draw_game()
+	camera(4,-16)
+
 	-- draw the tiles
 	foreach_tile(draw_tile)
 
 	-- draw entities
 	foreach(entities,draw_entity)
 
-	-- debug
-	-- rect(level.play_area_left-1,-1,level.play_area_right+1,level.play_area_bottom+1,3)
-	print("game",1,1,7)
+	-- draw some ui
+	camera()
+	rectfill(0,0,127,19,0)
+	rectfill(0,108,127,127,0)
 end
 
 
@@ -321,21 +343,25 @@ function init_blank_tiles()
 		tiles[c]={}
 		local r
 		for r=1,num_rows do
-			tiles[c][r]=false
+			if c==1 or c==num_cols or r==1 or r==num_rows then
+				tiles[c][r]=create_tile("x",c,r)
+			else
+				tiles[c][r]=false
+			end
 		end
 	end
 end
 
-function create_tiles_from_map(map,key)
+function create_inner_tiles_from_map(map,key)
 	local r
-	for r=1,min(num_cols,#map) do
+	for r=1,min(num_rows-2,#map) do
 		local c
-		for c=1,min(num_rows,#map[r]) do
+		for c=1,min(num_cols-2,#map[r]) do
 			local symbol=sub(map[r],c,c)
 			if symbol==" " then
-				tiles[c][r]=false
+				tiles[c+1][r+1]=false
 			else
-				tiles[c][r]=create_tile(symbol,c,r)
+				tiles[c+1][r+1]=create_tile(symbol,c+1,r+1)
 			end
 		end
 	end
@@ -346,15 +372,19 @@ function create_tile(symbol,col,row)
 	return {
 		["col"]=col,
 		["row"]=row,
-		["sprite"]=tile_def["sprite"]
+		["sprite"]=tile_def["sprite"],
+		["is_destructible"]=tile_def["is_destructible"],
+		["hp"]=tile_def["hp"]
 	}
 end
 
 function draw_tile(tile)
-	local x=tile_width*(tile.col-1)
-	local y=tile_height*(tile.row-1)
-	spr(tile.sprite,x-2,y-2)
-	-- rectfill(x,y,x+tile_width-1,y+tile_height-1,7)
+	if tile.sprite!=nil then
+		local x=tile_width*(tile.col-1)
+		local y=tile_height*(tile.row-1)
+		spr(tile.sprite,x-2,y-2)
+		-- rectfill(x,y,x+tile_width-1,y+tile_height-1,7)
+	end
 end
 
 function foreach_tile(func)
@@ -386,8 +416,9 @@ function create_entity(class_name,args)
 		["width"]=class_def.width,
 		["height"]=class_def.height,
 		-- methods
-		["pre_move"]=class_def.pre_move or noop,
+		["pre_update"]=class_def.pre_update or noop,
 		["update"]=class_def.update or noop,
+		["post_update"]=class_def.post_update or noop,
 		["draw"]=class_def.draw or noop,
 		["can_collide_against_tile"]=class_def.can_collide_against_tile or noop,
 		["on_collide_with_tiles"]=class_def.on_collide_with_tiles or noop,
@@ -407,16 +438,6 @@ function add_entity_to_game(entity)
 	return entity
 end
 
-function update_entity(entity)
-	entity.frames_alive+=1
-	-- apply velocity
-	entity.pre_move(entity)
-	entity.x+=entity.vx
-	entity.y+=entity.vy
-	-- update the entity
-	entity.update(entity)
-end
-
 function draw_entity(entity)
 	-- rectfill(entity.x+0.5,entity.y+0.5,entity.x+0.5+entity.width-1,entity.y+0.5+entity.height-1,9)
 	entity.draw(entity)
@@ -427,152 +448,6 @@ function draw_entity(entity)
 end
 
 function check_for_tile_collisions(entity)
-	local x=entity.prev_x
-	local y=entity.prev_y
-	local i
-	local max_iterations=50
-	local dx_orig=entity.x-x
-	local dy_orig=entity.y-y
-	for i=1,max_iterations do
-		local dx=entity.x-x
-		local dy=entity.y-y
-
-		-- if we are not moving, we are done
-		if dx==0 and dy==0 then
-			break
-		end
-
-		-- find the next vertical bound along the ball's path
-		local bound_x=nil
-		-- vertical bound is to the right of the ball
-		if dx>0 then
-			bound_x=tile_width*entity.col_right-entity.width
-		-- vertical bound is to the left of the ball
-		elseif dx<0 then
-			bound_x=tile_width*(entity.col_left-1)
-		end
-
-		-- find the next horizontal bound along the ball's path
-		local bound_y=nil
-		-- horizontal bound is below the ball
-		if dy>0 then
-			bound_y=tile_height*entity.row_bottom-entity.height
-		-- horizontal bound is above the ball
-		elseif dy<0 then
-			bound_y=tile_height*(entity.row_top-1)
-		end
-
-		-- ball will reach the next vertical bound first
-		if bound_y==nil or (bound_x!=nil and (bound_x-x)/dx<(bound_y-y)/dy) then
-			local bound_dx=bound_x-x
-			-- the movement doesn't quite reach the bound--we are done!
-			if abs(bound_dx)>abs(dx) then
-				break
-			else
-				-- record the movement
-				x=bound_x
-				y+=dy*bound_dx/dx
-				local col
-				if dx>0 then
-					col=entity.col_right+1
-				elseif dx<0 then
-					col=entity.col_left-1
-				end
-				-- adjust the non-leading edge we aren't look at right now
-				if dy>0 then
-					entity.row_top=y_to_row(y)
-				elseif dy<0 then
-					entity.row_bottom=y_to_row(y+entity.height-1)
-				end
-				-- find all tiles that could be in the way
-				local tiles_to_collide_with={}
-				local row
-				for row=entity.row_top,entity.row_bottom do
-					if tiles[col] and tiles[col][row] and entity.can_collide_against_tile(entity,tiles[col][row]) then
-						add(tiles_to_collide_with,tiles[col][row])
-					end
-				end
-				-- adjust velocity if we hit a tile
-				local dir='right'
-				if dx<0 then
-					dir='left'
-				end
-				if #tiles_to_collide_with>0 and entity.on_collide_with_tiles(entity,tiles_to_collide_with,dir) then
-					entity.x=x
-					entity.y=y
-					break
-				elseif dx>0 then
-					entity.col_right=col
-				elseif dx<0 then
-					entity.col_left=col
-				end
-			end
-		-- ball will reach the next horizontal bound first
-		else
-			local bound_dy=bound_y-y
-			-- the movement doesn't quite reach the bound--we are done!
-			if abs(bound_dy)>abs(dy) then
-				break
-			else
-				-- record the movement
-				y=bound_y
-				x+=dx*bound_dy/dy
-				local row
-				if dy>0 then
-					row=entity.row_bottom+1
-				elseif dy<0 then
-					row=entity.row_top-1
-				end
-				-- adjust the non-leading edge we aren't look at right now
-				if dx>0 then
-					entity.col_left=x_to_col(x)
-				elseif dx<0 then
-					entity.col_right=x_to_col(x+entity.width-1)
-				end
-				-- find all tiles that could be in the way
-				local tiles_to_collide_with={}
-				local col
-				for col=entity.col_left,entity.col_right do
-					if tiles[col] and tiles[col][row] and entity.can_collide_against_tile(entity,tiles[col][row]) then
-						add(tiles_to_collide_with,tiles[col][row])
-					end
-				end
-				-- trigger hits and check for the end of movement
-				local dir='bottom'
-				if dy<0 then
-					dir='top'
-				end
-				if #tiles_to_collide_with>0 and entity.on_collide_with_tiles(entity,tiles_to_collide_with,dir) then
-					entity.x=x
-					entity.y=y
-					break
-				elseif dy>0 then
-					entity.row_bottom=row
-				elseif dy<0 then
-					entity.row_top=row
-				end
-			end
-		end
-		if i==max_iterations then
-			entity.x=x
-			entity.y=y
-		end
-	end
-	-- adjust the non-leading edges in case we switch directions (todo do this before directions are switched?)
-	if dx_orig>0 then
-		entity.col_left=x_to_col(entity.x)
-	elseif dx_orig<0 then
-		entity.col_right=x_to_col(entity.x+entity.width-1)
-	end
-	if dy_orig>0 then
-		entity.row_top=y_to_row(entity.y)
-	elseif dy_orig<0 then
-		entity.row_bottom=y_to_row(entity.y+entity.height-1)
-	end
-end
-
-
-function check_for_tile_collisions_2(entity)
 	local x=entity.prev_x
 	local y=entity.prev_y
 	local i
@@ -654,13 +529,21 @@ function check_for_tile_collisions_2(entity)
 				if dx<0 then
 					dir='left'
 				end
+				local temp_x=entity.x
+				local temp_y=entity.y
+				entity.x=x
+				entity.y=y
 				if #tiles_to_collide_with>0 and entity.on_collide_with_tiles(entity,tiles_to_collide_with,dir) then
 					break
 				-- update the leading bound if we are not done yet
-				elseif dx>0 then
-					entity.col_right=col
-				elseif dx<0 then
-					entity.col_left=col
+				else
+					entity.x=temp_x
+					entity.y=temp_y
+					if dx>0 then
+						entity.col_right=col
+					elseif dx<0 then
+						entity.col_left=col
+					end
 				end
 			else
 				break
@@ -710,13 +593,21 @@ function check_for_tile_collisions_2(entity)
 				if dy<0 then
 					dir='top'
 				end
+				local temp_x=entity.x
+				local temp_y=entity.y
+				entity.x=x
+				entity.y=y
 				if #tiles_to_collide_with>0 and entity.on_collide_with_tiles(entity,tiles_to_collide_with,dir) then
 					break
 				-- update the leading bound if we are not done yet
-				elseif dy>0 then
-					entity.row_bottom=row
-				elseif dy<0 then
-					entity.row_top=row
+				else
+					entity.x=temp_x
+					entity.y=temp_y
+					if dy>0 then
+						entity.row_bottom=row
+					elseif dy<0 then
+						entity.row_top=row
+					end
 				end
 			else
 				break
@@ -770,34 +661,34 @@ end
 __gfx__
 22222222222222222222222200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 2888888888888888888ee88200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-2888e888888ee88888e88e8200000000000000000000000000aaab0000777c0000eee80000aaa900006665000000000000000000000000000000000000000000
-288ee88888e88e888888e88200000000000000000000000000abbb00007ccc0000e8880000a99900006656000000000000000000000000000000000000000000
-2888e8888888e88888888e8200000000000000000000000000bbb30000ccc1000088820000999400006565000000000000000000000000000000000000000000
-2888e888888e888888e88e8200004444444000000000000000b3330000c1110000822200009444000055550000000000000000000000c00000c0000000000000
+2888e888888ee88888e88e82000000000000000000dd550000aaab0000eee80000eee80000aaa900000000000066650000000000000000000000000000000000
+288ee88888e88e888888e882000000000000000000d5d50000abbb0000e8880000e8880000a99900000000000066560000000000000000000000000000000000
+2888e8888888e88888888e820000000000000000005d550000bbb300008882000088820000999400000000000065650000000000000000000000000000000000
+2888e888888e888888e88e8200004444444000000055550000b333000082220000822200009444000000000000555500000000000000c00000c0000000000000
 2888e88888eeee88888ee882000044444440000000000000000000000000000000000000000000000000000000000000000000000000ccccccc0000000000000
 288888888888888888888882000044744740000000000000000000000000000000000000000000000000000000000000000000000000cc1cc1c0000000000000
 288888888888888888888882000044744740000000000000000000000000000000000000000000000000000000000000000000000000cc1cc1c0000000000000
 28888e8888eeee88888ee882000044444440000000000000000000000000000000000000000000000000000000000000000000000000ccccccc0000000000000
-288e8e8888e8888888e8888200000044000000000000000000eee80000aaa90000666500007666000066dd000076d6000049a400000000cc0000000000000000
-288e8e8888eee8888eee888207770888800000000000000000e8880000a999000066560000677500006dd60000d76d000099a90000000cccc000000000000000
-28eeee8888888e888e88e8827000777880000000000000000088820000999400006565000067560000d6dd00006d7600009a990000000cccc000000000000000
-28888e8888e88e888e88e8827000788880000000000000000082220000944400005555000056750000dddd0000d66d00004a940000000cccc000000000000000
+288e8e8888e8888888e88882000000440000000000d66d000000000000aaa90000766700007666000066dd000076d6000049a400000000cc0000000000000000
+288e8e8888eee8888eee8882077708888000000000665d000000000000a999000067750000677500006dd60000d76d000099a90000000cccc000000000000000
+28eeee8888888e888e88e8827000777880000000006d6d000000000000999400006775000067560000d6dd00006d7600009a990000000cccc000000000000000
+28888e8888e88e888e88e882700078888000000000d5d5000000000000944400007556000056750000dddd0000d66d00004a940000000cccc000000000000000
 28888e88888ee88888ee88820777088880000000000000000000000000000000000000000000000000000000000000000000000000000cccc000000000000000
 2888888888888888888888820000040040000000000000000000000000000000000000000000000000000000000000000000000000000c00c000000000000000
 28888888888888888888888200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 28888888888ee888888ee88200000000000000000000000000000000000000000000000000000000000000000000000000004000400000000000000000000000
-288eeee888e88e8888e88e8200000000000000000000000000ab3b0000aaab00006d6d00006d560000dddd00006aa60000004000400000000000000000000000
-288888e8888ee88888e88e8200000000000000000000000000b3330000abbb0000d6660000655d0000dddd0000a66b0000004000400000000000000000000000
-288888e888e88e88888eee820000c00000c000000000000000333b0000bbb3000066d6000055d60000dddd0000b6b30000004000400000000000000000000000
-28888e8888e88e8888888e820000ccccccc000000000000000b3bb0000b33300006dd600006d6d0000dddd0000b36300000ffeeeefff00000000000000000000
+288eeee888e88e8888e88e8200000000000000000077d50000ab3b0000aaab00006d6d00006d560000dddd00006aa60000004000400000000000000000000000
+288888e8888ee88888e88e820000000000000000006d170000b3330000abbb0000d6660000655d0000dddd0000a66b0000004000400000000000000000000000
+288888e888e88e88888eee820000c00000c0000000d1d10000333b0000bbb3000066d6000055d60000dddd0000b6b30000004000400000000000000000000000
+28888e8888e88e8888888e820000ccccccc000000015760000b3bb0000b33300006dd600006d6d0000dddd0000b36300000ffeeeefff00000000000000000000
 2888e888888ee88888888e820000ccccccc000000000000000000000000000000000000000000000000000000000000000f2ff5ee5f2f0000000000000000000
 2888888888888888888888820000cc7cc7c00000000000000000000000000000000000000000000000000000000000000000ff5fe5f000000000000000000000
 2888888888888888888888820000cc7cc7c00000000000000000000000000000000000000000000000000000000000000000fffffeff00000000000000000000
 288e88e88888888888e88e820000ccccccc00000000000000000000000000000000000000000000000000000000000000000ffffffff00000000000000000000
-28ee8e8e888e88e88ee8e8e2000000cc00000000000000000000000000000000006666000066660000666500006565000000004fffff00000000000000000000
-288e8e8e88ee8ee888e888e207770cccc0000000000000000000000000000000006ddd0000665500006565000066650000000f44400000000000000000000000
-288e8e8e888e88e888e88e827777777cc0000000000000000000000000000000006dd60000656500005655000066560000000ffff00000000000000000000000
-288e88e8888e88e888e8eee277777cccc000000000000000000000000000000000d6dd0000555500005555000056650000000ffff00000000000000000000000
+28ee8e8e888e88e88ee8e8e2000000cc000000000000000000aaab0000777c00006666000066660000666500000000000000004fffff00000000000000000000
+288e8e8e88ee8ee888e888e207770cccc00000000000000000abbb00007ccc00006ddd0000665500006565000000000000000f44400000000000000000000000
+288e8e8e888e88e888e88e827777777cc00000000000000000bbb30000ccc100006dd60000656500005655000000000000000ffff00000000000000000000000
+288e88e8888e88e888e8eee277777cccc00000000000000000b3330000c1110000d6dd0000555500005555000000000000000ffff00000000000000000000000
 28888888888888888888888207770cccc00000000000000000000000000000000000000000000000000000000000000000000ffff00000000000000000000000
 22222222222222222222222200000c00c00000000000000000000000000000000000000000000000000000000000000000000400400000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
