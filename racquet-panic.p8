@@ -4,8 +4,12 @@ __lua__
 -- constants
 tile_width=4
 tile_height=4
-num_cols=34
-num_rows=24
+num_cols=32
+num_rows=21
+game_top=0
+game_bottom=num_rows*tile_height
+game_left=0
+game_right=num_cols*tile_width
 entity_classes={
 	["player"]={
 		["width"]=12,
@@ -14,9 +18,9 @@ entity_classes={
 			entity.x=args.x
 			entity.y=args.y
 			entity.is_grounded=false
-			entity.swing='forehand'
 			entity.state='default'
 			entity.state_frames=0
+			entity.swing='forehand'
 			entity.swings={
 				["forehand"]={
 					["startup"]=1,
@@ -33,9 +37,9 @@ entity_classes={
 				-- swing when z is pressed
 				if btn(4) then
 					if entity.state=='default' then
-						entity.swing='forehand'
 						entity.state='charging'
 						entity.state_frames=0
+						entity.swing='forehand'
 					end
 				elseif entity.state=='charging' then
 					entity.state='swinging'
@@ -62,20 +66,22 @@ entity_classes={
 			entity.is_grounded=false
 		end,
 		["update"]=function(entity)
+			entity.x+=entity.vx
+			entity.y+=entity.vy
 			-- land on the bottom of the play area
-			if entity.y>(num_rows-1)*tile_height-entity.height then
-				entity.y=(num_rows-1)*tile_height-entity.height
+			if entity.y>game_bottom-entity.height then
+				entity.y=game_bottom-entity.height
 				entity.vy=min(entity.vy,0)
 				entity.is_grounded=true
 			end
 			-- hit the left wall of the play area
-			if entity.x<4 then
-				entity.x=4
+			if entity.x<game_left then
+				entity.x=game_left
 				entity.vx=max(entity.vx,0)
 			end
 			-- hit the right wall of the play area
-			if entity.x>67-entity.width+1 then
-				entity.x=67-entity.width+1
+			if entity.x>game_right-entity.width then
+				entity.x=game_right-entity.width
 				entity.vx=min(entity.vx,0)
 			end
 		end,
@@ -99,7 +105,13 @@ entity_classes={
 			entity.y=args.y
 			entity.vx=args.vx
 			entity.vy=args.vy
-			entity.gravity=1
+			entity.freeze_frames=0
+			entity.gravity=0--1
+			entity.power=5
+			-- below 9.9 means the ball is "dead" and will die if it touches the ground
+			-- 10 to 19.9 means the ball has been hit and will bounce off tiles
+			-- 20 to 29.9 means the ball has been hit with a charge2 hit and will drill a little
+			-- 30 and above means the ball has been hit with a charge3 hit and will drill a lot
 			entity.vertical_energy=0.5*entity.vy*entity.vy+entity.gravity*(127-entity.y)
 			entity.col_left=x_to_col(entity.x)
 			entity.col_right=x_to_col(entity.x+entity.width-1)
@@ -107,41 +119,111 @@ entity_classes={
 			entity.row_bottom=y_to_row(entity.y+entity.height-1)
 		end,
 		["pre_update"]=function(entity)
+			if entity.freeze_frames>0 then
+				return
+			end
 			entity.prev_x=entity.x
 			entity.prev_y=entity.y
 			entity.vy+=entity.gravity
 		end,
 		["update"]=function(entity)
+			if entity.freeze_frames>0 then
+				return
+			end
+			entity.x+=entity.vx
+			entity.y+=entity.vy
 			check_for_tile_collisions(entity)
+			-- hit the bottom of the play area
+			if entity.y>game_bottom-entity.height then
+				entity.y=game_bottom-entity.height
+				if entity.vy>0 then
+					entity.vy*=-1
+				end
+			end
+			-- hit the top of the play area
+			if entity.y<game_top then
+				entity.y=game_top
+				if entity.vy<0 then
+					entity.vy*=-1
+				end
+			end
+			-- hit the left wall of the play area
+			if entity.x<game_left then
+				entity.x=game_left
+				if entity.vx<0 then
+					entity.vx*=-1
+				end
+			end
+			-- hit the right wall of the play area
+			if entity.x>game_right-entity.width then
+				entity.x=game_right-entity.width
+				if entity.vx>0 then
+					entity.vx*=-1
+				end
+			end
+		end,
+		["post_update"]=function(entity)
+			if entity.freeze_frames>0 then
+				entity.freeze_frames-=1
+				return
+			end
 		end,
 		["can_collide_against_tile"]=function(entity,tile)
 			return true -- return true to indicate a collision
 		end,
 		["on_collide_with_tiles"]=function(entity,tiles_hit,dir)
-			if dir=='left' or dir=='right' then
-				entity.vx*=-1
-			elseif dir=='top' or dir=='bottom' then
-				local v=sqrt(2*(entity.vertical_energy-entity.gravity*(127-entity.y)))
-				if entity.vy>0 then
-					entity.vy=-v
-				else
-					entity.vy=v
-				end
-			end
+			local power=entity.power
+			local all_tiles_are_destructible=true
 			foreach(tiles_hit,function(tile)
 				if tile.is_destructible then
 					tile.hp-=1
 					if tile.hp<=0 then
+						entity.power=max(0,entity.power-1)
+						entity.freeze_frames=2
 						tiles[tile.col][tile.row]=false
 					end
+				else
+					all_tiles_are_destructible=false
 				end
 			end)
+			-- we have slowed down to a lower power
+			if flr(entity.power/10)<flr(power/10) then
+				entity.gravity=0
+				if entity.power<30 then
+					entity.gravity=1
+				end
+				-- recalc energy
+			end
+			-- change directions
+			if dir=='left' or dir=='right' then
+				if not all_tiles_are_destructible or power<20 then
+					entity.vx*=-1
+				end
+			elseif dir=='top' or dir=='bottom' then
+				if not all_tiles_are_destructible or power<20 then
+					local v=sqrt(2*(entity.vertical_energy-entity.gravity*(127-entity.y)))
+					if entity.vy>0 then
+						entity.vy=-v
+					else
+						entity.vy=v
+					end
+				end
+			end
 			return true -- return true to end movement
 		end,
 		["draw"]=function(entity)
 			local x=entity.x+0.5
 			local y=entity.y+0.5
-			rectfill(x,y,x+entity.width-1,y+entity.height-1,9)
+			if entity.power<10 then
+				color(7)
+			elseif entity.power<20 then
+				color(10)
+			elseif entity.power<30 then
+				color(9)
+			else
+				color(8)
+			end
+			rectfill(x,y,x+entity.width-1,y+entity.height-1)
 			-- line((entity.col_left-1)*tile_width-1,entity.y-5,(entity.col_left-1)*tile_width-1,entity.y+entity.height+4,7)
 			-- line((entity.col_right)*tile_width,entity.y-5,(entity.col_right)*tile_width,entity.y+entity.height+4,15)
 			-- line(entity.x-5,(entity.row_top-1)*tile_height-1,entity.x+entity.width+4,(entity.row_top-1)*tile_height-1,7)
@@ -169,9 +251,8 @@ tile_legend={
 levels={
 	{
 		["tile_map"]={
-			"                                ",
+			"r                              r",
 			"                          ggg   ",
-			"                         ggg    ",
 			"                         gggg   ",
 			"                          ggg   ",
 			"                          gggg  ",
@@ -190,7 +271,7 @@ levels={
 			"                        rrrrrr  ",
 			"                        rrrrrr  ",
 			"                         rrrr   ",
-			"                                ",
+			"r                              r",
 		}
 	}
 }
@@ -209,6 +290,7 @@ bg_color=0
 
 
 -- game vars
+freeze_frames=0
 level=nil
 tiles={}
 entities={}
@@ -281,7 +363,7 @@ function init_game()
 	init_blank_tiles()
 	-- load the level
 	level=levels[1]
-	create_inner_tiles_from_map(level.tile_map)
+	create_tiles_from_map(level.tile_map)
 	create_entity("player",{
 		["x"]=30,
 		["y"]=60
@@ -289,22 +371,25 @@ function init_game()
 	create_entity("ball",{
 		["x"]=60.5,
 		["y"]=58,
-		["vx"]=8.5,
-		["vy"]=8.5
+		["vx"]=2.5,
+		["vy"]=2.5
 	})
 	foreach(new_entities,add_entity_to_game)
 	new_entities={}
 end
 
 function update_game()
+	if freeze_frames>0 then
+		freeze_frames-=1
+		return
+	end
+
 	-- update entities
 	foreach(entities,function(entity)
 		entity.frames_alive+=1
 		entity.pre_update(entity)
 	end)
 	foreach(entities,function(entity)
-		entity.x+=entity.vx
-		entity.y+=entity.vy
 		entity.update(entity)
 	end)
 	foreach(entities,function(entity)
@@ -320,7 +405,7 @@ function update_game()
 end
 
 function draw_game()
-	camera(4,-16)
+	camera(0,-16)
 
 	-- draw the tiles
 	foreach_tile(draw_tile)
@@ -330,8 +415,8 @@ function draw_game()
 
 	-- draw some ui
 	camera()
-	rectfill(0,0,127,19,0)
-	rectfill(0,108,127,127,0)
+	rectfill(0,0,127,15,0)
+	rectfill(0,100,127,127,0)
 end
 
 
@@ -343,25 +428,21 @@ function init_blank_tiles()
 		tiles[c]={}
 		local r
 		for r=1,num_rows do
-			if c==1 or c==num_cols or r==1 or r==num_rows then
-				tiles[c][r]=create_tile("x",c,r)
-			else
-				tiles[c][r]=false
-			end
+			tiles[c][r]=false
 		end
 	end
 end
 
-function create_inner_tiles_from_map(map,key)
+function create_tiles_from_map(map,key)
 	local r
-	for r=1,min(num_rows-2,#map) do
+	for r=1,min(num_rows,#map) do
 		local c
-		for c=1,min(num_cols-2,#map[r]) do
+		for c=1,min(num_cols,#map[r]) do
 			local symbol=sub(map[r],c,c)
 			if symbol==" " then
-				tiles[c+1][r+1]=false
+				tiles[c][r]=false
 			else
-				tiles[c+1][r+1]=create_tile(symbol,c+1,r+1)
+				tiles[c][r]=create_tile(symbol,c,r)
 			end
 		end
 	end
