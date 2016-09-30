@@ -10,6 +10,7 @@ game_top=0
 game_bottom=num_rows*tile_height
 game_left=0
 game_right=num_cols*tile_width
+game_mid=flr((num_cols/2)*tile_width)
 entity_classes={
 	["player"]={
 		["width"]=12,
@@ -80,8 +81,8 @@ entity_classes={
 				entity.vx=max(entity.vx,0)
 			end
 			-- hit the right wall of the play area
-			if entity.x>game_right-entity.width then
-				entity.x=game_right-entity.width
+			if entity.x>game_mid-entity.width then
+				entity.x=game_mid-entity.width
 				entity.vx=min(entity.vx,0)
 			end
 		end,
@@ -106,12 +107,12 @@ entity_classes={
 			entity.vx=args.vx
 			entity.vy=args.vy
 			entity.freeze_frames=0
-			entity.gravity=0--1
-			entity.power=5
-			-- below 9.9 means the ball is "dead" and will die if it touches the ground
-			-- 10 to 19.9 means the ball has been hit and will bounce off tiles
-			-- 20 to 29.9 means the ball has been hit with a charge2 hit and will drill a little
-			-- 30 and above means the ball has been hit with a charge3 hit and will drill a lot
+			entity.gravity=0
+			entity.power_level=3 -- 0 = least power, 3 = max power
+			entity.num_tiles_hit=0
+			entity.left_wall_bounces=0
+			entity.right_wall_bounces=0
+			entity.recent_court_bounces=0
 			entity.vertical_energy=0.5*entity.vy*entity.vy+entity.gravity*(127-entity.y)
 			entity.col_left=x_to_col(entity.x)
 			entity.col_right=x_to_col(entity.x+entity.width-1)
@@ -119,106 +120,144 @@ entity_classes={
 			entity.row_bottom=y_to_row(entity.y+entity.height-1)
 		end,
 		["pre_update"]=function(entity)
-			if entity.freeze_frames>0 then
-				return
-			end
 			entity.prev_x=entity.x
 			entity.prev_y=entity.y
 			entity.vy+=entity.gravity
 		end,
 		["update"]=function(entity)
-			if entity.freeze_frames>0 then
-				return
-			end
 			entity.x+=entity.vx
 			entity.y+=entity.vy
 			check_for_tile_collisions(entity)
+			-- todo this code could cause bugs if bounds get desynced
 			-- hit the bottom of the play area
 			if entity.y>game_bottom-entity.height then
 				entity.y=game_bottom-entity.height
 				if entity.vy>0 then
-					entity.vy*=-1
+					if entity.x+entity.width/2<game_mid then
+						entity.recent_court_bounces+=1
+					end
+					entity.do_bounce(entity,'bottom')
 				end
 			end
 			-- hit the top of the play area
 			if entity.y<game_top then
 				entity.y=game_top
 				if entity.vy<0 then
-					entity.vy*=-1
+					entity.do_bounce(entity,'top')
 				end
 			end
 			-- hit the left wall of the play area
 			if entity.x<game_left then
 				entity.x=game_left
 				if entity.vx<0 then
-					entity.vx*=-1
+					entity.recent_court_bounces=0
+					entity.left_wall_bounces+=1
+					entity.do_bounce(entity,'left')
 				end
 			end
 			-- hit the right wall of the play area
 			if entity.x>game_right-entity.width then
 				entity.x=game_right-entity.width
 				if entity.vx>0 then
-					entity.vx*=-1
+					entity.recent_court_bounces=0
+					entity.right_wall_bounces+=1
+					entity.do_bounce(entity,'right')
 				end
 			end
 		end,
 		["post_update"]=function(entity)
-			if entity.freeze_frames>0 then
-				entity.freeze_frames-=1
-				return
-			end
 		end,
 		["can_collide_against_tile"]=function(entity,tile)
 			return true -- return true to indicate a collision
 		end,
 		["on_collide_with_tiles"]=function(entity,tiles_hit,dir)
-			local power=entity.power
 			local all_tiles_are_destructible=true
 			foreach(tiles_hit,function(tile)
 				if tile.is_destructible then
 					tile.hp-=1
 					if tile.hp<=0 then
-						entity.power=max(0,entity.power-1)
-						entity.freeze_frames=2
+						entity.recent_court_bounces=0
+						entity.num_tiles_hit+=1
 						tiles[tile.col][tile.row]=false
 					end
 				else
 					all_tiles_are_destructible=false
 				end
 			end)
-			-- we have slowed down to a lower power
-			if flr(entity.power/10)<flr(power/10) then
-				entity.gravity=0
-				if entity.power<30 then
-					entity.gravity=1
-				end
-				-- recalc energy
-			end
 			-- change directions
 			if dir=='left' or dir=='right' then
-				if not all_tiles_are_destructible or power<20 then
-					entity.vx*=-1
+				if not all_tiles_are_destructible or entity.power_level<2 then
+					entity.do_bounce(entity,dir)
 				end
 			elseif dir=='top' or dir=='bottom' then
-				if not all_tiles_are_destructible or power<20 then
-					local v=sqrt(2*(entity.vertical_energy-entity.gravity*(127-entity.y)))
-					if entity.vy>0 then
-						entity.vy=-v
-					else
-						entity.vy=v
-					end
+				if not all_tiles_are_destructible or entity.power_level<2 then
+					entity.do_bounce(entity,dir)
 				end
 			end
 			return true -- return true to end movement
 		end,
+		["do_bounce"]=function(entity,dir)
+			-- check to see if the power level has changed
+			local new_power_level=entity.power_level
+			local new_gravity=0
+			local new_speed=0
+			if entity.power_level>=3 and (
+				(entity.num_tiles_hit>10) or -- end if it moves through 10 tiles
+				(entity.num_tiles_hit>1 and entity.recent_court_bounces>0) or -- end if it hits the court after hitting a tile
+				(entity.left_wall_bounces+entity.right_wall_bounces+entity.recent_court_bounces>=2) -- end it it hits too many walls
+				) then
+				new_power_level=2
+				new_gravity=0.03
+				new_speed=5
+			elseif entity.power_level==2 and (
+				(entity.num_tiles_hit>10) or -- end if it moves through 10 tiles
+				(entity.num_tiles_hit>1 and entity.recent_court_bounces>0) or -- end if it hits the court after hitting a tile
+				(entity.left_wall_bounces+entity.right_wall_bounces+entity.recent_court_bounces>=2) -- end it it hits too many walls
+				) then
+				new_power_level=1
+				new_gravity=0.04
+				new_speed=3.5
+			elseif entity.power_level==1 and entity.recent_court_bounces>0 and (entity.num_tiles_hit>0 or entity.left_wall_bounces+entity.right_wall_bounces>0) then
+				new_power_level=0
+				new_gravity=0.05
+				new_speed=2.5
+			end
+			-- if it has changed, change it
+			if new_power_level!=entity.power_level then
+				entity.power_level=new_power_level
+				local curr_speed=sqrt(entity.vx*entity.vx+entity.vy*entity.vy)
+				if curr_speed>0 then
+					entity.vx*=new_speed/curr_speed
+					entity.vy*=new_speed/curr_speed
+				end
+				entity.gravity=new_gravity
+				entity.vertical_energy=max(2.5,0.5*entity.vy*entity.vy+entity.gravity*(127-entity.y))
+				entity.num_tiles_hit=0
+				entity.left_wall_bounces=0
+				entity.right_wall_bounces=0
+				entity.recent_court_bounces=0
+			end
+			-- change velocities
+			if dir=='left' or dir=='right' then
+				entity.vx*=-1
+			end
+			if dir=='top' or dir=='bottom' then
+				local v=sqrt(2*(entity.vertical_energy-entity.gravity*(127-entity.y)))
+				if entity.vy>0 then
+					entity.vy=-v
+				else
+					entity.vy=v
+				end
+			end
+		end,
 		["draw"]=function(entity)
 			local x=entity.x+0.5
 			local y=entity.y+0.5
-			if entity.power<10 then
+			if entity.power_level<=0 then
 				color(7)
-			elseif entity.power<20 then
+			elseif entity.power_level<=1 then
 				color(10)
-			elseif entity.power<30 then
+			elseif entity.power_level<=2 then
 				color(9)
 			else
 				color(8)
@@ -251,7 +290,7 @@ tile_legend={
 levels={
 	{
 		["tile_map"]={
-			"r                              r",
+			"                                ",
 			"                          ggg   ",
 			"                         gggg   ",
 			"                          ggg   ",
@@ -271,7 +310,7 @@ levels={
 			"                        rrrrrr  ",
 			"                        rrrrrr  ",
 			"                         rrrr   ",
-			"r                              r",
+			"                                ",
 		}
 	}
 }
@@ -369,10 +408,10 @@ function init_game()
 		["y"]=60
 	})
 	create_entity("ball",{
-		["x"]=60.5,
+		["x"]=4,
 		["y"]=58,
-		["vx"]=2.5,
-		["vy"]=2.5
+		["vx"]=10,
+		["vy"]=0
 	})
 	foreach(new_entities,add_entity_to_game)
 	new_entities={}
@@ -507,6 +546,13 @@ function create_entity(class_name,args)
 		["is_alive"]=true,
 		["frames_alive"]=0
 	}
+	local k
+	local v
+	for k,v in pairs(class_def) do
+		if not entity[k] then
+			entity[k]=v
+		end
+	end
 	if class_def.init then
 		class_def.init(entity,args)
 	end
@@ -750,10 +796,10 @@ __gfx__
 288888888888888888888882000044744740000000000000000000000000000000000000000000000000000000000000000000000000cc1cc1c0000000000000
 288888888888888888888882000044744740000000000000000000000000000000000000000000000000000000000000000000000000cc1cc1c0000000000000
 28888e8888eeee88888ee882000044444440000000000000000000000000000000000000000000000000000000000000000000000000ccccccc0000000000000
-288e8e8888e8888888e88882000000440000000000d66d000000000000aaa90000766700007666000066dd000076d6000049a400000000cc0000000000000000
-288e8e8888eee8888eee8882077708888000000000665d000000000000a999000067750000677500006dd60000d76d000099a90000000cccc000000000000000
-28eeee8888888e888e88e8827000777880000000006d6d000000000000999400006775000067560000d6dd00006d7600009a990000000cccc000000000000000
-28888e8888e88e888e88e882700078888000000000d5d5000000000000944400007556000056750000dddd0000d66d00004a940000000cccc000000000000000
+288e8e8888e8888888e88882000000440000000000d66d0000cccc0000aaa90000766700007666000066dd000076d6000049a400000000cc0000000000000000
+288e8e8888eee8888eee8882077708888000000000665d0000c00c0000a999000067750000677500006dd60000d76d000099a90000000cccc000000000000000
+28eeee8888888e888e88e8827000777880000000006d6d0000c00c0000999400006775000067560000d6dd00006d7600009a990000000cccc000000000000000
+28888e8888e88e888e88e882700078888000000000d5d50000cccc0000944400007556000056750000dddd0000d66d00004a940000000cccc000000000000000
 28888e88888ee88888ee88820777088880000000000000000000000000000000000000000000000000000000000000000000000000000cccc000000000000000
 2888888888888888888888820000040040000000000000000000000000000000000000000000000000000000000000000000000000000c00c000000000000000
 28888888888888888888888200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
