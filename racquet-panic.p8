@@ -22,12 +22,18 @@ entity_classes={
 			entity.state='default'
 			entity.state_frames=0
 			entity.swing='forehand'
+			entity.swing_power_level=1 -- min=1 max=4
 			entity.swings={
 				["forehand"]={
 					["startup"]=1,
 					["active"]=3,
 					["recovery"]=3,
-					["hitbox"]={2,-4,20,10} -- x1,y1,x2,y2
+					["hitbox"]={2,-4,20,10}, -- x1,y1,x2,y2
+					["hit_dir"]={
+						{1,-0.14},
+						{1,-0.23},
+						{1,-0.26}
+					}
 				}
 			}
 		end,
@@ -36,15 +42,20 @@ entity_classes={
 			entity.state_frames+=1
 			if entity.is_grounded then
 				-- swing when z is pressed
-				if btn(4) then
-					if entity.state=='default' then
+				if entity.state=='default' then
+					if btn(4) then
 						entity.state='charging'
 						entity.state_frames=0
 						entity.swing='forehand'
+						entity.swing_power_level=2
 					end
-				elseif entity.state=='charging' then
-					entity.state='swinging'
-					entity.state_frames=0
+				end
+				if entity.state=='charging' then
+					entity.swing_power_level=min(flr(2+entity.state_frames/15),4)
+					if not btn(4) then
+						entity.state='swinging'
+						entity.state_frames=0
+					end
 				end
 				if entity.state=='swinging' then
 					local swing = entity.swings[entity.swing]
@@ -86,12 +97,50 @@ entity_classes={
 				entity.vx=min(entity.vx,0)
 			end
 		end,
+		["post_update"]=function(entity)
+			if entity.state=='swinging' then
+				local swing = entity.swings[entity.swing]
+				if entity.state_frames>=swing.startup and entity.state_frames<swing.startup+swing.active then
+					local x=entity.x+0.5
+					local y=entity.y+0.5
+					local hitbox_left=x+swing.hitbox[1]
+					local hitbox_right=x+swing.hitbox[3]
+					local hitbox_top=y+swing.hitbox[2]
+					local hitbox_bottom=y+swing.hitbox[4]
+					foreach(balls, function(ball)
+						local ball_left=ball.x
+						local ball_right=ball.x+ball.width/2
+						local ball_top=ball.y+ball.height/2
+						local ball_bottom=ball.y+ball.height
+						if hitbox_left<ball_right and
+							ball_left<hitbox_right and
+							hitbox_top<ball_bottom and
+							ball_top<hitbox_bottom then
+							ball.vx=swing.hit_dir[entity.swing_power_level-1][1]
+							ball.vy=swing.hit_dir[entity.swing_power_level-1][2]
+							ball.set_power_level(ball,entity.swing_power_level)
+						end
+					end)
+				end
+			end
+		end,
 		["draw"]=function(entity)
 			local x=entity.x+0.5
 			local y=entity.y+0.5
-			rectfill(x,y,entity.x+0.5+entity.width-1,entity.y+0.5+entity.height-1,9)
+			if entity.state=='charging' or entity.state=='swinging' then
+				if entity.swing_power_level<=2 then
+					color(3)
+				elseif entity.swing_power_level<=3 then
+					color(11)
+				else
+					color(14)
+				end
+			else
+				color(12)
+			end
+			rectfill(x,y,entity.x+0.5+entity.width-1,entity.y+0.5+entity.height-1)
 			if entity.state=='swinging' then
-				local swing = entity.swings[entity.swing]
+				local swing=entity.swings[entity.swing]
 				if entity.state_frames>=swing.startup and entity.state_frames<swing.startup+swing.active then
 					rectfill(x+swing.hitbox[1],y+swing.hitbox[2],x+swing.hitbox[3]-1,y+swing.hitbox[4]-1,8)
 				end
@@ -108,7 +157,7 @@ entity_classes={
 			entity.vy=args.vy
 			entity.freeze_frames=0
 			entity.gravity=0
-			entity.power_level=3 -- 0 = least power, 3 = max power
+			entity.power_level=4 -- min=1 max=4
 			entity.num_tiles_hit=0
 			entity.left_wall_bounces=0
 			entity.right_wall_bounces=0
@@ -186,11 +235,11 @@ entity_classes={
 			end)
 			-- change directions
 			if dir=='left' or dir=='right' then
-				if not all_tiles_are_destructible or entity.power_level<2 then
+				if not all_tiles_are_destructible or entity.power_level<=2 then
 					entity.do_bounce(entity,dir)
 				end
 			elseif dir=='top' or dir=='bottom' then
-				if not all_tiles_are_destructible or entity.power_level<2 then
+				if not all_tiles_are_destructible or entity.power_level<=2 then
 					entity.do_bounce(entity,dir)
 				end
 			end
@@ -199,43 +248,20 @@ entity_classes={
 		["do_bounce"]=function(entity,dir)
 			-- check to see if the power level has changed
 			local new_power_level=entity.power_level
-			local new_gravity=0
-			local new_speed=0
-			if entity.power_level>=3 and (
+			if entity.power_level>=4 and (
 				(entity.num_tiles_hit>10) or -- end if it moves through 10 tiles
 				(entity.num_tiles_hit>1 and entity.recent_court_bounces>0) or -- end if it hits the court after hitting a tile
 				(entity.left_wall_bounces+entity.right_wall_bounces+entity.recent_court_bounces>=2) -- end it it hits too many walls
 				) then
-				new_power_level=2
-				new_gravity=0.03
-				new_speed=5
-			elseif entity.power_level==2 and (
+				entity.set_power_level(entity,3)
+			elseif entity.power_level==3 and (
 				(entity.num_tiles_hit>10) or -- end if it moves through 10 tiles
 				(entity.num_tiles_hit>1 and entity.recent_court_bounces>0) or -- end if it hits the court after hitting a tile
 				(entity.left_wall_bounces+entity.right_wall_bounces+entity.recent_court_bounces>=2) -- end it it hits too many walls
 				) then
-				new_power_level=1
-				new_gravity=0.04
-				new_speed=3.5
-			elseif entity.power_level==1 and entity.recent_court_bounces>0 and (entity.num_tiles_hit>0 or entity.left_wall_bounces+entity.right_wall_bounces>0) then
-				new_power_level=0
-				new_gravity=0.05
-				new_speed=2.5
-			end
-			-- if it has changed, change it
-			if new_power_level!=entity.power_level then
-				entity.power_level=new_power_level
-				local curr_speed=sqrt(entity.vx*entity.vx+entity.vy*entity.vy)
-				if curr_speed>0 then
-					entity.vx*=new_speed/curr_speed
-					entity.vy*=new_speed/curr_speed
-				end
-				entity.gravity=new_gravity
-				entity.vertical_energy=max(2.5,0.5*entity.vy*entity.vy+entity.gravity*(127-entity.y))
-				entity.num_tiles_hit=0
-				entity.left_wall_bounces=0
-				entity.right_wall_bounces=0
-				entity.recent_court_bounces=0
+				entity.set_power_level(entity,2)
+			elseif entity.power_level==2 and entity.recent_court_bounces>0 and (entity.num_tiles_hit>0 or entity.left_wall_bounces+entity.right_wall_bounces>0) then
+				entity.set_power_level(entity,1)
 			end
 			-- change velocities
 			if dir=='left' or dir=='right' then
@@ -250,14 +276,30 @@ entity_classes={
 				end
 			end
 		end,
+		["set_power_level"]=function(entity,power_level)
+			local speeds_by_power_level={2.5,3.5,5,10}
+			local gravity_by_power_level={0.05,0.04,0.03,0}
+			entity.power_level=power_level
+			local curr_speed=sqrt(entity.vx*entity.vx+entity.vy*entity.vy)
+			if curr_speed>0 then
+				entity.vx*=speeds_by_power_level[entity.power_level]/curr_speed
+				entity.vy*=speeds_by_power_level[entity.power_level]/curr_speed
+			end
+			entity.gravity=gravity_by_power_level[entity.power_level]
+			entity.vertical_energy=max(2.5,0.5*entity.vy*entity.vy+entity.gravity*(127-entity.y))
+			entity.num_tiles_hit=0
+			entity.left_wall_bounces=0
+			entity.right_wall_bounces=0
+			entity.recent_court_bounces=0
+		end,
 		["draw"]=function(entity)
 			local x=entity.x+0.5
 			local y=entity.y+0.5
-			if entity.power_level<=0 then
+			if entity.power_level<=1 then
 				color(7)
-			elseif entity.power_level<=1 then
-				color(10)
 			elseif entity.power_level<=2 then
+				color(10)
+			elseif entity.power_level<=3 then
 				color(9)
 			else
 				color(8)
@@ -332,6 +374,7 @@ bg_color=0
 freeze_frames=0
 level=nil
 tiles={}
+balls={}
 entities={}
 new_entities={}
 
@@ -397,6 +440,7 @@ function init_game()
 	scene="game"
 	scene_frame=0
 	bg_color=1
+	balls={}
 	entities={}
 	new_entities={}
 	init_blank_tiles()
@@ -440,6 +484,7 @@ function update_game()
 	new_entities={}
 
 	-- get rid of any dead entities
+	balls=filter_list(balls,is_alive)
 	entities=filter_list(entities,is_alive)
 end
 
@@ -526,6 +571,7 @@ end
 function create_entity(class_name,args)
 	local class_def=entity_classes[class_name]
 	local entity={
+		["class_name"]=class_name,
 		-- position
 		["x"]=0,
 		["y"]=0,
@@ -562,6 +608,9 @@ end
 
 function add_entity_to_game(entity)
 	add(entities,entity)
+	if entity.class_name=="ball" then
+		add(balls,entity)
+	end
 	return entity
 end
 
