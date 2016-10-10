@@ -5,16 +5,76 @@ __lua__
 tile_width=4
 tile_height=4
 num_cols=32
-num_rows=21
+num_rows=13
 game_top=0
 game_bottom=num_rows*tile_height
 game_left=0
 game_right=num_cols*tile_width
 game_mid=flr((num_cols/2)*tile_width)
+camera_offset_y=32
 entity_classes={
 	["player"]={
-		["width"]=12,
-		["height"]=16,
+		["width"]=16,
+		["height"]=24,
+		["swing_id"]=0,
+		["swings"]={
+			["forehand"]={
+				["charge"]={
+					["sprites"]={false,192,193,194,false,false,208,209,210,false,false,224,225,226,false}
+				},
+				["startup"]={
+					["frames"]=2,
+					["sprites"]={false,195,196,197,false,false,211,212,213,false,false,227,228,229,false}
+				},
+				["active"]={
+					["frames"]=2,
+					["sprites"]={false,198,199,200,false,false,214,215,216,false,false,230,231,232,false},
+					["hitboxes"]={
+						{["dimensions"]={10,13,4,4},["dir"]={{1,-0.14},{1,-0.14},{1,-0.14}},["is_sweet"]=true},
+						{["dimensions"]={5,11,12,9},["dir"]={{1,-0.14},{1,-0.14},{1,-0.14}}},
+						{["dimensions"]={1,11,4,8},["dir"]={{1,-0.14},{1,-0.14},{1,-0.14}},["is_sour"]=true}
+					}
+				},
+				["recovery"]={
+					["frames"]=8,
+					["sprites"]={false,false,201,202,203,false,false,217,218,219,false,false,233,234,235}
+				}
+			},
+			["spike"]={
+				["charge"]={
+					["sprites"]={false,4,5,6,false,false,20,21,22,false,false,36,37,38,false}
+				},
+				["startup"]={
+					["frames"]=1,
+					["sprites"]={false,7,8,9,false,false,23,24,25,false,false,39,40,41,false}
+				},
+				["active"]={
+					["frames"]=1,
+					["sprites"]={false,false,10,11,12,false,false,26,27,28,false,false,42,43,44}
+				},
+				["recovery"]={
+					["frames"]=1,
+					["sprites"]={false,false,13,14,15,false,false,29,30,31,false,false,45,46,47}
+				}
+			},
+			["lob"]={
+				["charge"]={
+					["sprites"]={64,65,66,false,false,80,81,82,false,false,96,97,98,false,false}
+				},
+				["startup"]={
+					["frames"]=1,
+					["sprites"]={67,68,69,false,false,83,84,85,false,false,99,100,101,false,false}
+				},
+				["active"]={
+					["frames"]=1,
+					["sprites"]={false,70,71,72,false,false,86,87,88,false,false,102,103,104,false}
+				},
+				["recovery"]={
+					["frames"]=1,
+					["sprites"]={false,false,73,74,75,false,false,89,90,91,false,false,105,106,107}
+				}
+			}
+		},
 		["init"]=function(entity,args)
 			entity.x=args.x
 			entity.y=args.y
@@ -22,20 +82,7 @@ entity_classes={
 			entity.state='standing'
 			entity.state_frames=0
 			entity.swing='forehand'
-			entity.swing_power_level=1 -- min=1 max=4
-			entity.swings={
-				["forehand"]={
-					["startup"]=2,
-					["active"]=2,
-					["recovery"]=6,
-					["hitbox"]={3,1,20,14}, -- x1,y1,x2,y2
-					["hit_dir"]={
-						{1,-0.14},
-						{1,-0.23},
-						{1,-0.26}
-					}
-				}
-			}
+			entity.swing_power_level=1 -- min=1 max=5
 		end,
 		["pre_update"]=function(entity)
 			entity.vy+=0.1
@@ -46,7 +93,13 @@ entity_classes={
 					if btn(4) then
 						entity.state='charging'
 						entity.state_frames=0
-						entity.swing='forehand'
+						if btn(2) then
+							entity.swing='spike'
+						elseif btn(3) then
+							entity.swing='lob'
+						else
+							entity.swing='forehand'
+						end
 						entity.swing_power_level=2
 					end
 				end
@@ -55,11 +108,12 @@ entity_classes={
 					if not btn(4) then
 						entity.state='swinging'
 						entity.state_frames=0
+						entity.swing_id+=1
 					end
 				end
 				if entity.state=='swinging' then
-					local swing = entity.swings[entity.swing]
-					if entity.state_frames>=swing.startup+swing.active+swing.recovery then
+					local swing=entity.swings[entity.swing]
+					if entity.state_frames>=swing.startup.frames+swing.active.frames+swing.recovery.frames then
 						entity.state='standing'
 						entity.state_frames=0
 					end
@@ -106,99 +160,199 @@ entity_classes={
 		end,
 		["post_update"]=function(entity)
 			if entity.state=='swinging' then
-				local swing = entity.swings[entity.swing]
-				if entity.state_frames>=swing.startup and entity.state_frames<swing.startup+swing.active then
-					local x=entity.x+0.5
-					local y=entity.y+0.5
-					local hitbox_left=x+swing.hitbox[1]
-					local hitbox_right=x+swing.hitbox[3]
-					local hitbox_top=y+swing.hitbox[2]
-					local hitbox_bottom=y+swing.hitbox[4]
-					foreach(balls, function(ball)
-						local ball_left=ball.x
-						local ball_right=ball.x+ball.width/2
-						local ball_top=ball.y+ball.height/2
-						local ball_bottom=ball.y+ball.height
-						if hitbox_left<ball_right and
-							ball_left<hitbox_right and
-							hitbox_top<ball_bottom and
-							ball_top<hitbox_bottom then
-							ball.vx=swing.hit_dir[entity.swing_power_level-1][1]
-							ball.vy=swing.hit_dir[entity.swing_power_level-1][2]
-							freeze_frames=(entity.swing_power_level-1)*4
-							entity.state_frames=swing.startup+swing.active-1
-							ball.set_power_level(ball,entity.swing_power_level)
+				local swing=entity.swings[entity.swing]
+				local swing_part
+				if entity.state_frames<swing.startup.frames then
+					swing_part=swing.startup
+				elseif entity.state_frames<swing.startup.frames+swing.active.frames then
+					swing_part=swing.active
+				else
+					swing_part=swing.recovery
+				end
+				local i
+				for i=1,#balls do
+					local ball=balls[i]
+					local ball_left=ball.x
+					local ball_right=ball.x+ball.width/2
+					local ball_top=ball.y+ball.height/2
+					local ball_bottom=ball.y+ball.height
+					local j
+					if ball.swing_id!=entity.swing_id and swing_part.hitboxes then
+						for j=1,#swing_part.hitboxes do
+							local hitbox=swing_part.hitboxes[j]
+							local hitbox_left=entity.x+hitbox.dimensions[1]
+							local hitbox_right=entity.x+hitbox.dimensions[1]+hitbox.dimensions[3]
+							local hitbox_top=entity.y+hitbox.dimensions[2]
+							local hitbox_bottom=entity.y+hitbox.dimensions[2]+hitbox.dimensions[4]
+							if hitbox_left<=ball_right and ball_left<=hitbox_right and hitbox_top<=ball_bottom and ball_top<=hitbox_bottom then
+								ball.vx=hitbox.dir[entity.swing_power_level-1][1]
+								ball.vy=hitbox.dir[entity.swing_power_level-1][2]
+								local power_level=entity.swing_power_level
+								if power_level>=4 then
+									power_level=5
+								end
+								if hitbox.is_sweet then
+									power_level=max(2*power_level-2,3)
+								elseif hitbox.is_sour then
+									power_level=2
+								end
+								ball.set_power_level(ball,power_level)
+								ball.swing_id=entity.swing_id
+								ball.has_hit_court=false
+								ball.can_hit_court=false
+								ball.should_downgrade_power=false
+								freeze_frames=3
+								if hitbox.is_sweet then
+									freeze_frames=45
+								end
+								break
+								-- entity.state_frames=swing.startup+swing.active-1
+								-- create_entity("swing_hit_effect",{
+								-- 	["x"]=ball.x+0.5+ball.width/2,
+								-- 	["y"]=ball.y+0.5+ball.height/2
+								-- })
+							end
 						end
-					end)
+					end
 				end
 			end
 		end,
 		["draw"]=function(entity)
+			-- local x=entity.x+0.5
+			-- local y=entity.y+0.5
+			-- local sprites={}
+			-- local offset_x=0
+			-- local offset_y=0
+			-- if entity.state=='charging' then
+			-- 	if entity.swing=='spike' then
+			-- 		sprites={4,5,6,20,21,22,36,37,38}
+			-- 	elseif entity.swing=='lob' then
+			-- 		sprites={64,65,66,80,81,82,96,97,98}
+			-- 		offset_x=-8
+			-- 	else
+			-- 		sprites={192,193,194,208,209,210,224,225,226}
+			-- 	end
+			-- elseif entity.state=='swinging' then
+			-- 	local swing=entity.swings[entity.swing]
+			-- 	if entity.state_frames<swing.startup then
+			-- 		if entity.swing=='spike' then
+			-- 			sprites={7,8,9,23,24,25,39,40,41}
+			-- 		elseif entity.swing=='lob' then
+			-- 			sprites={67,68,69,83,84,85,99,100,101}
+			-- 			offset_x=-8
+			-- 		else
+			-- 			sprites={195,196,197,211,212,213,227,228,229}
+			-- 		end
+			-- 	elseif entity.state_frames<swing.startup+swing.active then
+			-- 		if entity.swing=='spike' then
+			-- 			sprites={10,11,12,26,27,28,42,43,44}
+			-- 			offset_x=8
+			-- 		elseif entity.swing=='lob' then
+			-- 			sprites={70,71,72,86,87,88,102,103,104}
+			-- 		else
+			-- 			sprites={198,199,200,214,215,216,230,231,232}
+			-- 		end
+			-- 		-- rectfill(x+swing.hitbox[1],y+swing.hitbox[2],x+swing.hitbox[3]-1,y+swing.hitbox[4]-1,8)
+			-- 	else
+			-- 		if entity.swing=='spike' then
+			-- 			sprites={13,14,15,29,30,31,45,46,47}
+			-- 			offset_x=8
+			-- 		elseif entity.swing=='lob' then
+			-- 			sprites={73,74,75,89,90,91,105,106,107}
+			-- 			offset_x=8
+			-- 		else
+			-- 			sprites={201,202,203,217,218,219,233,234,235}
+			-- 			offset_x=8
+			-- 		end
+			-- 	end
+			-- elseif entity.vx>0 then
+			-- 	if entity.state_frames%12<6 then
+			-- 		sprites={131,132,133,147,148,149,163,164,165}
+			-- 	else
+			-- 		sprites={134,135,136,150,151,152,166,167,168}
+			-- 	end
+			-- elseif entity.vx<0 then
+			-- 	if entity.state_frames%12<6 then
+			-- 		sprites={137,138,139,153,154,155,169,170,171}
+			-- 	else
+			-- 		sprites={140,141,142,156,157,158,172,173,174}
+			-- 	end
+			-- else
+			-- 	sprites={128,129,130,144,145,146,160,161,162}
+			-- end
+			-- -- draw the sprites
+			-- local i
+			-- for i=1,#sprites do
+			-- 	if sprites[i]!=nil then
+			-- 		spr(sprites[i],x+8*((i-1)%3)+offset_x,y+8*flr((i-1)/3)+offset_y)
+			-- 	end
+			-- end
 			local x=entity.x+0.5
 			local y=entity.y+0.5
-			if entity.state=='charging' or entity.state=='swinging' then
-				if entity.swing_power_level<=2 then
-					color(3)
-				elseif entity.swing_power_level<=3 then
-					color(11)
+			local sprites={}
+			-- draw a silly rectangle
+			-- rectfill(x,y,x+entity.width-1,y+entity.height-1,14)
+			-- determine sprites based on state
+			local swing=entity.swings[entity.swing]
+			local swing_part
+			if entity.state=='swinging' then
+				if entity.state_frames<swing.startup.frames then
+					swing_part=swing.startup
+				elseif entity.state_frames<swing.startup.frames+swing.active.frames then
+					swing_part=swing.active
 				else
-					color(14)
+					swing_part=swing.recovery
 				end
+			elseif entity.state=='charging' then
+				swing_part=swing.charge
 			else
-				color(12)
+				sprites={false,128,129,130,false,false,144,145,146,false,false,160,161,162,false}
 			end
-			local sprites=nil
-			if entity.state=='charging' then
-				sprites={74,75,90,91}
-			elseif entity.state=='swinging' then
-				local swing=entity.swings[entity.swing]
-				if entity.state_frames<swing.startup then
-					sprites={76,77,92,93}
-				elseif entity.state_frames<swing.startup+swing.active then
-					sprites={78,79,94,95}
-					-- rectfill(x+swing.hitbox[1],y+swing.hitbox[2],x+swing.hitbox[3]-1,y+swing.hitbox[4]-1,8)
-				else
-					sprites={96,97,112,113}
-				end
-			elseif entity.vx>0 then
-				if entity.state_frames%12<6 then
-					sprites={66,67,82,83}
-				else
-					sprites={68,69,84,85}
-				end
-			elseif entity.vx<0 then
-				if entity.state_frames%12<6 then
-					sprites={70,71,86,87}
-				else
-					sprites={72,73,88,89}
-				end
-			else
-				sprites={64,65,80,81}
+			if swing_part then
+				sprites=swing_part.sprites
 			end
-			if sprites then
-				spr(sprites[1],x,y)
-				spr(sprites[2],x+8,y)
-				spr(sprites[3],x,y+8)
-				spr(sprites[4],x+8,y+8)
+			-- draw the sprites
+			local i
+			for i=1,#sprites do
+				if sprites[i] then
+					spr(sprites[i],x+8*((i-1)%5)-12,y+8*flr((i-1)/5))
+				end
+			end
+			-- visualize hitboxes
+			if swing_part and swing_part.hitboxes then
+				local i
+				for i=#swing_part.hitboxes,1,-1 do
+					local hitbox=swing_part.hitboxes[i]
+					local d=hitbox.dimensions
+					if hitbox.is_sour then
+						color(8)
+					elseif hitbox.is_sweet then
+						color(14)
+					else
+						color(9)
+					end
+					rect(x+d[1],y+d[2],x+d[1]+d[3]-1,y+d[2]+d[4]-1)
+				end
 			end
 		end
 	},
 	["ball"]={
 		["width"]=3,
 		["height"]=3,
+		["swing_id"]=-1,
+		["speeds_by_power_level"]={2,2.75,5,7},
+		["gravity_by_power_level"]={0.06,0.05,0.02,0},
 		["init"]=function(entity,args)
 			entity.x=args.x
 			entity.y=args.y
 			entity.vx=args.vx
 			entity.vy=args.vy
-			entity.freeze_frames=0
-			entity.gravity=0
-			entity.power_level=4 -- min=1 max=4
-			entity.num_tiles_hit=0
-			entity.left_wall_bounces=0
-			entity.right_wall_bounces=0
-			entity.recent_court_bounces=0
-			entity.vertical_energy=0.5*entity.vy*entity.vy+entity.gravity*(127-entity.y)
+			entity.power_level=1
+			entity.gravity=entity.gravity_by_power_level[min(entity.power_level,4)]
+			entity.should_downgrade_power=false
+			entity.can_hit_court=false
+			entity.has_hit_court=false
+			entity.vertical_energy=0.5*entity.vy*entity.vy+entity.gravity*(num_rows*tile_height-entity.height-entity.y)
 			entity.col_left=x_to_col(entity.x)
 			entity.col_right=x_to_col(entity.x+entity.width-1)
 			entity.row_top=y_to_row(entity.y)
@@ -218,9 +372,10 @@ entity_classes={
 			if entity.y>game_bottom-entity.height then
 				entity.y=game_bottom-entity.height
 				if entity.vy>0 then
-					if entity.x+entity.width/2<game_mid then
-						entity.recent_court_bounces+=1
+					if entity.x+entity.width/2<game_mid and entity.can_hit_court then
+						entity.has_hit_court=true
 					end
+					entity.check_for_power_level_change(entity)
 					entity.do_bounce(entity,'bottom')
 				end
 			end
@@ -228,6 +383,8 @@ entity_classes={
 			if entity.y<game_top then
 				entity.y=game_top
 				if entity.vy<0 then
+					entity.can_hit_court=true
+					entity.check_for_power_level_change(entity)
 					entity.do_bounce(entity,'top')
 				end
 			end
@@ -235,8 +392,9 @@ entity_classes={
 			if entity.x<game_left then
 				entity.x=game_left
 				if entity.vx<0 then
-					entity.recent_court_bounces=0
-					entity.left_wall_bounces+=1
+					entity.should_downgrade_power=true
+					entity.can_hit_court=true
+					entity.check_for_power_level_change(entity)
 					entity.do_bounce(entity,'left')
 				end
 			end
@@ -244,67 +402,60 @@ entity_classes={
 			if entity.x>game_right-entity.width then
 				entity.x=game_right-entity.width
 				if entity.vx>0 then
-					entity.recent_court_bounces=0
-					entity.right_wall_bounces+=1
+					entity.should_downgrade_power=true
+					entity.can_hit_court=true
+					entity.check_for_power_level_change(entity)
 					entity.do_bounce(entity,'right')
 				end
 			end
-		end,
-		["post_update"]=function(entity)
 		end,
 		["can_collide_against_tile"]=function(entity,tile)
 			return true -- return true to indicate a collision
 		end,
 		["on_collide_with_tiles"]=function(entity,tiles_hit,dir)
-			local all_tiles_are_destructible=true
+			entity.can_hit_court=true
+			entity.should_downgrade_power=true
+			local max_tiles_hit=999 -- ceil(entity.height/tile_height)
+			-- if dir=='top' or dir=='bottom' then
+			-- 	max_tiles_hit=ceil(entity.width/tile_width)
+			-- end
+			-- if entity.power_level>2 then
+			-- 	max_tiles_hit=999
+			-- end
+			local num_tiles_hit=0
 			foreach(tiles_hit,function(tile)
-				if tile.is_destructible then
-					tile.hp-=1
-					if tile.hp<=0 then
-						entity.recent_court_bounces=0
-						entity.num_tiles_hit+=1
-						tiles[tile.col][tile.row]=false
-					end
-				else
-					all_tiles_are_destructible=false
+				if num_tiles_hit<max_tiles_hit then
+					num_tiles_hit+=1
+					freeze_frames=2
+					tile.on_hit(tile,entity,dir)
 				end
 			end)
-			-- change directions
-			if dir=='left' or dir=='right' then
-				if not all_tiles_are_destructible or entity.power_level<=2 then
-					entity.do_bounce(entity,dir)
-				end
-			elseif dir=='top' or dir=='bottom' then
-				if not all_tiles_are_destructible or entity.power_level<=2 then
-					entity.do_bounce(entity,dir)
-				end
+			local old_power_level=entity.power_level
+			entity.check_for_power_level_change(entity)
+			if old_power_level<=2 then
+				-- change directions
+				entity.do_bounce(entity,dir)
 			end
 			return true -- return true to end movement
 		end,
-		["do_bounce"]=function(entity,dir)
+		["check_for_power_level_change"]=function(entity)
 			-- check to see if the power level has changed
 			local new_power_level=entity.power_level
-			if entity.power_level>=4 and (
-				(entity.num_tiles_hit>10) or -- end if it moves through 10 tiles
-				(entity.num_tiles_hit>1 and entity.recent_court_bounces>0) or -- end if it hits the court after hitting a tile
-				(entity.left_wall_bounces+entity.right_wall_bounces+entity.recent_court_bounces>=2) -- end it it hits too many walls
-				) then
-				entity.set_power_level(entity,3)
-			elseif entity.power_level==3 and (
-				(entity.num_tiles_hit>10) or -- end if it moves through 10 tiles
-				(entity.num_tiles_hit>1 and entity.recent_court_bounces>0) or -- end if it hits the court after hitting a tile
-				(entity.left_wall_bounces+entity.right_wall_bounces+entity.recent_court_bounces>=2) -- end it it hits too many walls
-				) then
-				entity.set_power_level(entity,2)
-			elseif entity.power_level==2 and entity.recent_court_bounces>0 and (entity.num_tiles_hit>0 or entity.left_wall_bounces+entity.right_wall_bounces>0) then
+			if entity.power_level>1 and entity.has_hit_court then
 				entity.set_power_level(entity,1)
+				entity.has_hit_court=false
+			elseif entity.power_level>2 and entity.should_downgrade_power then
+				entity.set_power_level(entity,entity.power_level-1)
+				entity.should_downgrade_power=false
 			end
+		end,
+		["do_bounce"]=function(entity,dir)
 			-- change velocities
 			if dir=='left' or dir=='right' then
 				entity.vx*=-1
 			end
 			if dir=='top' or dir=='bottom' then
-				local v=sqrt(2*(entity.vertical_energy-entity.gravity*(127-entity.y)))
+				local v=sqrt(2*(entity.vertical_energy-entity.gravity*(num_rows*tile_height-entity.height-entity.y)))
 				if entity.vy>0 then
 					entity.vy=-v
 				else
@@ -313,20 +464,14 @@ entity_classes={
 			end
 		end,
 		["set_power_level"]=function(entity,power_level)
-			local speeds_by_power_level={2.5,3.5,5,10}
-			local gravity_by_power_level={0.05,0.04,0.03,0}
 			entity.power_level=power_level
 			local curr_speed=sqrt(entity.vx*entity.vx+entity.vy*entity.vy)
 			if curr_speed>0 then
-				entity.vx*=speeds_by_power_level[entity.power_level]/curr_speed
-				entity.vy*=speeds_by_power_level[entity.power_level]/curr_speed
+				entity.vx*=entity.speeds_by_power_level[min(entity.power_level,4)]/curr_speed
+				entity.vy*=entity.speeds_by_power_level[min(entity.power_level,4)]/curr_speed
 			end
-			entity.gravity=gravity_by_power_level[entity.power_level]
-			entity.vertical_energy=max(2.5,0.5*entity.vy*entity.vy+entity.gravity*(127-entity.y))
-			entity.num_tiles_hit=0
-			entity.left_wall_bounces=0
-			entity.right_wall_bounces=0
-			entity.recent_court_bounces=0
+			entity.gravity=entity.gravity_by_power_level[min(entity.power_level,4)]
+			entity.vertical_energy=max(0.75,0.5*entity.vy*entity.vy+entity.gravity*(num_rows*tile_height-entity.height-entity.y))
 		end,
 		["draw"]=function(entity)
 			local x=entity.x+0.5
@@ -337,8 +482,10 @@ entity_classes={
 				color(10)
 			elseif entity.power_level<=3 then
 				color(9)
-			else
+			elseif entity.power_level<=4 then
 				color(8)
+			else
+				color(14)
 			end
 			rectfill(x,y,x+entity.width-1,y+entity.height-1)
 			-- line((entity.col_left-1)*tile_width-1,entity.y-5,(entity.col_left-1)*tile_width-1,entity.y+entity.height+4,7)
@@ -346,22 +493,52 @@ entity_classes={
 			-- line(entity.x-5,(entity.row_top-1)*tile_height-1,entity.x+entity.width+4,(entity.row_top-1)*tile_height-1,7)
 			-- line(entity.x-5,(entity.row_bottom)*tile_height,entity.x+entity.width+4,(entity.row_bottom)*tile_height,15)
 		end
+	},
+	["tile_death_effect"]={
+		["init"]=function(entity,args)
+			entity.x=args.x
+			entity.y=args.y
+		end,
+		["update"]=function(entity)
+			entity.x+=entity.vx
+			entity.y+=entity.vy
+			entity.vx*=0.99
+			entity.vy*=0.99
+			if entity.frames_alive>1 then
+				entity.is_alive=false
+			end
+		end,
+		["draw"]=function(entity)
+			local x=entity.x+0.5
+			local y=entity.y+0.5
+			if entity.frames_alive<1 then
+				rectfill(x,y,x+entity.width-1,y+entity.height-1,7)
+			elseif entity.frames_alive<2 then
+				rect(x,y,x+entity.width-1,y+entity.height-1,7)
+			end
+		end
+	},
+	["swing_hit_effect"]={
+		["init"]=function(entity,args)
+			entity.x=args.x
+			entity.y=args.y
+		end,
+		["draw"]=function(entity)
+			-- circ(entity.x,entity.y,entity.frames_alive*1,7)
+			-- circ(entity.x,entity.y,entity.frames_alive*2,12)
+			-- circ(entity.x,entity.y,entity.frames_alive*3,8)
+			-- circ(entity.x,entity.y,entity.frames_alive*4,11)
+			-- circ(entity.x,entity.y,entity.frames_alive*5,10)
+		end	
 	}
 }
 tile_legend={
-	["x"]={
-		["sprite"]=nil,
-		["is_destructible"]=false,
-		["hp"]=0
-	},
 	["g"]={
 		["sprite"]=6,
-		["is_destructible"]=true,
 		["hp"]=1
 	},
 	["r"]={
 		["sprite"]=7,
-		["is_destructible"]=true,
 		["hp"]=1
 	}
 }
@@ -484,14 +661,14 @@ function init_game()
 	level=levels[1]
 	create_tiles_from_map(level.tile_map)
 	create_entity("player",{
-		["x"]=30,
+		["x"]=13,
 		["y"]=60
 	})
 	create_entity("ball",{
-		["x"]=4,
-		["y"]=58,
-		["vx"]=10,
-		["vy"]=0
+		["x"]=50,
+		["y"]=30,
+		["vx"]=-0.5,
+		["vy"]=-1
 	})
 	foreach(new_entities,add_entity_to_game)
 	new_entities={}
@@ -525,7 +702,7 @@ function update_game()
 end
 
 function draw_game()
-	camera(0,-16)
+	camera(0,-camera_offset_y)
 
 	-- draw the tiles
 	foreach_tile(draw_tile)
@@ -535,8 +712,10 @@ function draw_game()
 
 	-- draw some ui
 	camera()
-	rectfill(0,0,127,15,0)
-	rectfill(0,100,127,127,0)
+	local y_bottom=camera_offset_y+tile_height*num_rows
+	rectfill(0,0,127,camera_offset_y-1,0)
+	rectfill(0,y_bottom,127,127,0)
+	line(0,y_bottom,game_mid,y_bottom,12)
 end
 
 
@@ -568,14 +747,27 @@ function create_tiles_from_map(map,key)
 	end
 end
 
+function tile_exists(col,row)
+	return tiles[col] and tiles[col][row]
+end
+
 function create_tile(symbol,col,row)
 	local tile_def=tile_legend[symbol]
 	return {
 		["col"]=col,
 		["row"]=row,
 		["sprite"]=tile_def["sprite"],
-		["is_destructible"]=tile_def["is_destructible"],
-		["hp"]=tile_def["hp"]
+		["hp"]=tile_def["hp"],
+		["on_hit"]=function(tile,ball,dir)
+			tile.hp-=1
+			if tile.hp<=0 then
+				tiles[tile.col][tile.row]=false
+			end
+			create_entity("tile_death_effect",{
+				["x"]=(tile.col-1)*tile_width,
+				["y"]=(tile.row-1)*tile_height,
+			})
+		end
 	}
 end
 
@@ -615,8 +807,8 @@ function create_entity(class_name,args)
 		["vx"]=0,
 		["vy"]=0,
 		-- size
-		["width"]=class_def.width,
-		["height"]=class_def.height,
+		["width"]=class_def.width or tile_width,
+		["height"]=class_def.height or tile_height,
 		-- methods
 		["pre_update"]=class_def.pre_update or noop,
 		["update"]=class_def.update or noop,
@@ -732,7 +924,7 @@ function check_for_tile_collisions(entity)
 				local tiles_to_collide_with={}
 				local row
 				for row=entity.row_top,entity.row_bottom do
-					if tiles[col] and tiles[col][row] and entity.can_collide_against_tile(entity,tiles[col][row]) then
+					if tile_exists(col,row) and entity.can_collide_against_tile(entity,tiles[col][row]) then
 						add(tiles_to_collide_with,tiles[col][row])
 					end
 				end
@@ -796,7 +988,7 @@ function check_for_tile_collisions(entity)
 				local tiles_to_collide_with={}
 				local col
 				for col=entity.col_left,entity.col_right do
-					if tiles[col] and tiles[col][row] and entity.can_collide_against_tile(entity,tiles[col][row]) then
+					if tile_exists(col,row) and entity.can_collide_against_tile(entity,tiles[col][row]) then
 						add(tiles_to_collide_with,tiles[col][row])
 					end
 				end
@@ -833,6 +1025,21 @@ end
 
 -- helper methods
 function noop() end
+
+function side_to_vec(dir,len)
+	len=len or 1
+	if dir=='left' then
+		return -len,0
+	elseif dir=='right' then
+		return len,0
+	elseif dir=='top' then
+		return 0,-len
+	elseif dir=='bottom' then
+		return 0,len
+	else
+		return 0,0
+	end
+end
 
 function btnp2(i)
 	return curr_btns[i] and not prev_btns[i]
@@ -871,70 +1078,62 @@ end
 
 
 __gfx__
-22222222222222222222222200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-2888888888888888888ee88200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-2888e888888ee88888e88e82000000000000000000dd550000aaab0000eee80000eee80000aaa900000000000066650000000000000000000000000000000000
-288ee88888e88e888888e882000000000000000000d5d50000abbb0000e8880000e8880000a99900000000000066560000000000000000000000000000000000
-2888e8888888e88888888e820000000000000000005d550000bbb300008882000088820000999400000000000065650000000000000000000000000000000000
-2888e888888e888888e88e8200004444444000000055550000b333000082220000822200009444000000000000555500000000000000c00000c0000000000000
-2888e88888eeee88888ee882000044444440000000000000000000000000000000000000000000000000000000000000000000000000ccccccc0000000000000
-288888888888888888888882000044744740000000000000000000000000000000000000000000000000000000000000000000000000cc1cc1c0000000000000
-288888888888888888888882000044744740000000000000000000000000000000000000000000000000000000000000000000000000cc1cc1c0000000000000
-28888e8888eeee88888ee882000044444440000000000000000000000000000000000000000000000000000000000000000000000000ccccccc0000000000000
-288e8e8888e8888888e88882000000440000000000d66d0000cccc0000aaa90000766700007666000066dd000076d6000049a400000000cc0000000000000000
-288e8e8888eee8888eee8882077708888000000000665d0000c00c0000a999000067750000677500006dd60000d76d000099a90000000cccc000000000000000
-28eeee8888888e888e88e8827000777880000000006d6d0000c00c0000999400006775000067560000d6dd00006d7600009a990000000cccc000000000000000
-28888e8888e88e888e88e882700078888000000000d5d50000cccc0000944400007556000056750000dddd0000d66d00004a940000000cccc000000000000000
-28888e88888ee88888ee88820777088880000000000000000000000000000000000000000000000000000000000000000000000000000cccc000000000000000
-2888888888888888888888820000040040000000000000000000000000000000000000000000000000000000000000000000000000000c00c000000000000000
-28888888888888888888888200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-28888888888ee888888ee88200000000000000000000000000000000000000000000000000000000000000000000000000004000400000000000000000000000
-288eeee888e88e8888e88e8200000000000000000077d50000ab3b0000aaab00006d6d00006d560000dddd00006aa60000004000400000000000000000000000
-288888e8888ee88888e88e820000000000000000006d170000b3330000abbb0000d6660000655d0000dddd0000a66b0000004000400000000000000000000000
-288888e888e88e88888eee820000c00000c0000000d1d10000333b0000bbb3000066d6000055d60000dddd0000b6b30000004000400000000000000000000000
-28888e8888e88e8888888e820000ccccccc000000015760000b3bb0000b33300006dd600006d6d0000dddd0000b36300000ffeeeefff00000000000000000000
-2888e888888ee88888888e820000ccccccc000000000000000000000000000000000000000000000000000000000000000f2ff5ee5f2f0000000000000000000
-2888888888888888888888820000cc7cc7c00000000000000000000000000000000000000000000000000000000000000000ff5fe5f000000000000000000000
-2888888888888888888888820000cc7cc7c00000000000000000000000000000000000000000000000000000000000000000fffffeff00000000000000000000
-288e88e88888888888e88e820000ccccccc00000000000000000000000000000000000000000000000000000000000000000ffffffff00000000000000000000
-28ee8e8e888e88e88ee8e8e2000000cc000000000000000000aaab0000777c00006666000066660000666500000000000000004fffff00000000000000000000
-288e8e8e88ee8ee888e888e207770cccc00000000000000000abbb00007ccc00006ddd0000665500006565000000000000000f44400000000000000000000000
-288e8e8e888e88e888e88e827777777cc00000000000000000bbb30000ccc100006dd60000656500005655000000000000000ffff00000000000000000000000
-288e88e8888e88e888e8eee277777cccc00000000000000000b3330000c1110000d6dd0000555500005555000000000000000ffff00000000000000000000000
-28888888888888888888888207770cccc00000000000000000000000000000000000000000000000000000000000000000000ffff00000000000000000000000
-22222222222222222222222200000c00c00000000000000000000000000000000000000000000000000000000000000000000400400000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000c00000c00000000000000000000000000000000000000000000000000000000000000000000000000000000000007770000000000000000000000000000
+00000ccccccc000000eee80000000000000000000000000000000000000000777770000000000000000000000000000777777000000000000000000000000000
+00000cc1cc1c000000e8880000000000000000000000000000000000000007777777000000000000000000000000000777777000000000000000000000000000
+00000cc1cc1c000000888200000000000000000c00000000c0000000000007777c77770000c00000000000000000000777777000000000000000000000000000
+00000cc1cc1c000000822200000000000000000cccccccccc0000000000007777cccccccccc00000000c00000000c07777777000000000000000000000000000
+00000ccccccc000000000000000000000000000ccc1ccc1cc0000000000000777ccc1ccc1cc00000000cccccccccc0777777000000000c00000000c000000000
+000000cc0000000000000000000000000000000ccc1ccc1cc0000000000000077ccc1ccc1cc00000000ccc1ccc1cc0777770000000000cccccccccc000000000
+0000ccccc000000000000000000000000000000ccc1ccc1cc0000000000000000ccc1ccc1cc00000000ccc1ccc1cc0777700000000000ccc1ccc1cc000000000
+000cccccc000000000000000000000000000000cccccccccc0000000000000000cccccccccc00000000ccc1ccc1cc7700000000000000ccc1ccc1cc000000000
+000cccccc700000000dd5500006d560000000070cccccccc000000000000000000cccccccc000000000cccccccccc7000000000000000ccc1ccc1cc000000000
+000ccccc0077770000d5d50000655d000000077000ccc00000000000000000000000ccc0000000000000cccccccc70000000000000000cccccccccc000000000
+000ccccc00777770005d55000055d600007777000ccccc000000000000000000000ccccc00000000000000ccc000000000000000000000cccccccc0000000000
+0000ccc00007777000555500006d6d00077777000cccccc0000000000000000000ccccccc00000000000cccccc000000000000000000000ccc00000000000000
+00000cc0000077700000000000000000777777000ccccccc000000000000000000ccccccc0000000000ccccccc0000000000000000000cccccc0000000000000
+00000c0c0000000000000000000000007777700000cccccc000000000000000000ccccccc0000000000ccccccc000000000000000000ccccccc0077000000000
+000000000000000000000000000000007777700000cccccc000000000000000000cccccc0000000000cccccccc000000000000000000ccccccc0007777700000
+000000000000000000000000000000007777700000cccccc00000000000000000ccccccc0000000000ccccccc0000000000000000000cccccc00000777777000
+00777c000066650000d66d0000766600077700000cccccccc0000000000000000ccccccc0000000000ccccccc0000000000000000000cccccc00000777777700
+007ccc000066560000665d0000677500000000000cccccccc0000000000000000ccccccc0000000000ccccccc0000000000000000000cccccc00000077777700
+00ccc10000656500006d6d0000675600000000000cccc0ccc0000000000000000ccccccc0000000000ccccccc00000000000000000000ccccc00000077777700
+00c111000055550000d5d50000567500000000000ccc00ccc0000000000000000ccc00cc0000000000ccc00cc00000000000000000000ccccc00000000777000
+0000000000000000000000000000000000000000ccc000cc00000000000000000cc000cc000000000ccc000cc0000000000000000000000ccc00000000000000
+0000000000000000000000000000000000000000c000000c0000000000000000c000000c000000000000000c00000000000000000000000c00c0000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000000000000000c00000c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0000c00000c000000000ccccccc000000000c00000c00000000c00000c000000000c00000c00000007700000c0000000000c00000c0000000000c00000c00000
-0000ccccccc000000000cc1cc1c000000000ccccccc00000000ccccccc000000000ccccccc0000007777ccccc0000000000ccccccc0000000000ccccccc00000
-0000cc1cc1c000000000cc1cc1c000000000cc1cc1c00000000cc1cc1c000000000cc1cc1c00000077771cc1c0000000000cc1cc1c0000000000cc1cc1c00000
-0000cc1cc1c000000000ccccccc000000000cc1cc1c00000000cc1cc1c000000000cc1cc1c00000077771cc1c0000000000cc1cc1c0000000000cc1cc1c00000
-0000ccccccc00000000000cc000000000000ccccccc00000000ccccccc000000000ccccccc000000077cccccc0000000077ccccccc0000000000ccccccc00000
-000000cc0000000000000cccc0000000000000cc00000000000000cc00000000000000cc000000000070cc000000000077770cc00000000000000cc770000000
-00000cccc000000000000cccc000000000000cccc000000000000cccc000000000000cccc0000000007cccc0000000007777cccc0000000000000cc777000000
-00000cccc000000000000cccc000000000000cccc000000000000cccc000000000000cccc0000000000cccc00000000007777ccc0000000000000cc777700000
-00000cccc000000000000ccccc00000000000cccc000000000000cccc000000000000cccc00000000000cccc000000000000c7cc0000000000000cccc7700000
-00000cccc00000000000c0000000000000000cccc000000000000cccc000000000000cccc00000000000cccc000000000000cccc0000000000000cccc0000000
-00000c00c000000000000000000000000000000c00000000000000000c0000000000000c000000000000c000c00000000000c000c00000000000c000c0000000
+0076d6000077d5000077d50000766700000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00d76d00006d1700006d170000677500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+006d760000d1d10000d1d10000677500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00d66d00001576000015760000755600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000c00000c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c00000c0000
-00000ccccccc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c00000c000000000ccccccc0000
-00000cc1cc1c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ccccccc000000000cc1cc1c0000
-00000cc1cc1c07700000000000000000000000000000000000000000000000000000000000000000000000000000000000000cc1cc1c000000000cc1cc1c0000
-00000ccccccc77770000000000000000000000000000000000000000000000000000000000000000000000000000000000000cc1cc1c000000000ccccccc0000
-0000000cc0077777000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cc00000000000000cc0000000
-000000cccc07777000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cccc000000000000cccc070000
-000000cccc70000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cccc000000000000cc77700000
-000000cccc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cccc000000000000c777700000
-00000ccccc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cccc000000000000c777700000
-000000000c0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c000c00000000000c0777000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000c00000000c000777000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000c00000000c0000000cccccccccc077777700000000000000000000000000000000000000
+000000000000c00000000c0000000000000000000000000000000000cccccccccc0000000ccc1ccc1cc077777700000000000000000000000000000000000000
+000000000000cccccccccc0000000000000000c00000000c00000000ccc1ccc1cc0000000ccc1ccc1cc777777700000000000000000000000000000000000000
+000000000000ccc1ccc1cc0000000000000000cccccccccc00000000ccc1ccc1cc0000000ccc1ccc1cc777777000000000000000000000000000000000000000
+000000000000ccc1ccc1cc0000000000000000ccc1ccc1cc00000000ccc1ccc1cc0000000cccccccccc777770000000000000000000000000000000000000000
+000000000000ccc1ccc1cc0000000000000000ccc1ccc1cc00000000cccccccccc00000000cccccccc0777700000000000000000000000000000000000000000
+000000000000cccccccccc0000000000000000ccc1ccc1cc000000000cccccccc00000000000ccc0000700000000000000000000000000000000000000000000
+0000000000000cccccccc00000000000000000cccccccccc00000000000ccc0000000000000ccccc007000000000000000000000000000000000000000000000
+000000000000000ccc000000000000000000000cccccccc00000000000cccccc00000000000cccccc00000000000000000000000000000000000000000000000
+00000000000000cccccc000000000000000000000ccc00000000000000cccccc00000000000cccccc00000000000000000000000000000000000000000000000
+00000000000000cccccc00000000000000000000ccccc0000000000000ccccc700000000000cccccc00000000000000000000000000000000000000000000000
+00000000000000cccccc00000000000000000000ccccc0000000000000cccccc7700000000ccccccc00000000000000000000000000000000000000000000000
+00000777707770ccccccc00000000000000000007ccccc00000000000ccccccc7777770000ccccccc00000000000000000000000000000000000000000000000
+00007777777000ccccccc0000000000000000077ccccccc0000000000ccccccc0777777000ccccccc00000000000000000000000000000000000000000000000
+000077777700000ccccccc000000000000077777ccccccc0000000000ccccccc0777777700ccccccc00000000000000000000000000000000000000000000000
+00007777700000cccccccc000000000000777770cccccccc000000000ccccccc0077777700ccc0ccc00000000000000000000000000000000000000000000000
+00000777000000cccc0cccc00000000000777770cccccccc000000000ccc0ccc007777770ccc00ccc00000000000000000000000000000000000000000000000
+00000000000000cc00000cc0000000000077777cccc000cc000000000cc000cc000077700cc000cc000000000000000000000000000000000000000000000000
+00000000000000c00000000c00000000007770ccc000000c00000000c000000c00000000c000000c000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
@@ -947,6 +1146,26 @@ __gfx__
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000000000000000000000000000000000c00000000c0000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000c00000000c000000000000000cccccccccc00000000000000c00000000c000000000000c00000000c00000000000000c00000000c000000000000000
+00000000cccccccccc000000000000000ccc1ccc1cc00000000000000cccccccccc000000000000cccccccccc00000000000000cccccccccc000000000000000
+00000000ccc1ccc1cc000000000000000ccc1ccc1cc00000000000000ccc1ccc1cc000000000000ccc1ccc1cc00000000000000ccc1ccc1cc000000000000000
+00000000ccc1ccc1cc000000000000000ccc1ccc1cc00000000000000ccc1ccc1cc000000000000ccc1ccc1cc00000000000000ccc1ccc1cc000000000000000
+00000000ccc1ccc1cc000000000000000cccccccccc00000000000000ccc1ccc1cc000000000000ccc1ccc1cc00000000000000ccc1ccc1cc000000000000000
+00000000cccccccccc0000000000000000cccccccc000000000000000cccccccccc000000000000cccccccccc00000000000000cccccccccc000000000000000
+000000000cccccccc0000000000000000000ccc0000000000000000000cccccccc00000000000000cccccccc0000000000000000cccccccc0000000000000000
+00000000000ccc000000000000000777000cccc000000000000000000000ccc0000000000000000000ccc000000000000000000000ccc0000000000000000000
+0000000000ccccc0000000000000777770cccccc000000000000077700ccccc000000000000000000ccccc0000000000000000000ccccc000000000000000000
+000000000ccccccc0000000000007777777cccccc0000000000077777ccccccc0000000000000000ccccccc00000000000000000ccccccc00000000000000000
+000000000c77cccc0000000000007777777cccccc000000000007777777cccccc000000000000000cccc77770000000000000000cccc77770000000000000000
+00000007777ccccc00000000000007777cccccccc000000000007777777cccccc000000000000000ccccc7777770000000000000ccccc7777770000000000000
+0000007777cccccc00000000000000000ccccccc00000000000007777cccccccc000000000000000cccccc777770000000000000cccccc777770000000000000
+0000007777cccccc00000000000000000ccccccc00000000000000000ccccccc0000000000000000cccccc777770000000000000cccccc777770000000000000
+000000777ccccccc00000000000000000ccccccc00000000000000000ccccccc0000000000000000ccccccc77770000000000000ccccccc77770000000000000
+000000000ccccccc0000000000000000ccccccccc00000000000000000cccccc0000000000000000cccccccc0000000000000000ccccc1cc0000000000000000
+000000000ccc0ccc000000000000000ccccc00cccc000000000000000cccccc000000000000000000ccc0cccc0000000000000000ccccccc0000000000000000
+000000000cc000cc000000000000000000000000000000000000000000000cc00000000000000000cccc00ccc00000000000000000ccc0000000000000000000
+000000000c00000c00000000000000000000000000000000000000000000c0000000000000000000000000000c000000000000000000c0000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
@@ -957,6 +1176,28 @@ __gfx__
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000aaab0000eee80000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000abbb0000e8880000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000c00000000c00000000000000000000000bbb3000088820000000000
+00000c00000000c0000000000000000c00000000c000000000000000c00000000c0000000cccccccccc00000000000000000000000b333000082220000000000
+00000cccccccccc0000000000000000cccccccccc000000000000000cccccccccc0000000ccc1ccc1cc000000000000000000000000000000000000000000000
+00000ccc1ccc1cc0000000000000000ccc1ccc1cc000000000000000ccc1ccc1cc0000000ccc1ccc1cc000000000000000000000000000000000000000000000
+07770ccc1ccc1cc0000000000000000ccc1ccc1cc000000000000000ccc1ccc1cc0000000ccc1ccc1cc000000000000000000000000000000000000000000000
+07777ccc1ccc1cc0000000000000000ccc1ccc1cc000000000000000ccc1ccc1cc0000000cccccccccc000777000000000000000000000000000000000000000
+07777cccccccccc0000000000000000cccccccccc000000000000000cccccccccc00000000cccccccc0007777700000000ab3b0000aaa90000dd5500006d5600
+077770cccccccc000000000000000000cccccccc00000000000000000cccccccc00000000000ccc0000077777700000000b3330000a9990000d5d50000655d00
+07777000ccc00000000000000000000000ccc0000000000000000000000ccc0000000000000ccccc000777777700000000333b0000999400005d55000055d600
+0077700ccccc000000000000077770000ccccc00000000000000000000c777c00000000000ccccccc07777777000000000b3bb000094440000555500006d6d00
+000777ccccccc0000000000077777700ccccccc0000000000000000000c777700000000000cccccc770007700000000000000000000000000000000000000000
+000007ccccccc0000000000077777770ccccccc000000000000000000cc7777c0000000000ccccccc00000000000000000000000000000000000000000000000
+0000007cccccc00000000000777777777cccccc000000000000000000ccc77770000000000ccccccc00000000000000000000000000000000000000000000000
+000000ccccccc000000000000777770ccccccc0000000000000000000ccc77770000000000ccccccc00000000000000000000000000000000000000000000000
+0000000ccccccc00000000000000000ccccccc0000000000000000000cccc77c0000000000ccccccc00000000000000000000000000000000000000000000000
+0000000ccccccc00000000000000000ccccccc000000000000000000cccccccc00000000ccccccccc00000000000000000000000000000000000000000000000
+000000ccccccccc0000000000000000cccccccc00000000000000000cccccccc000000000cccc0ccc00000000000000000000000000000000000000000000000
+000000cccc00ccc000000000000000cccc00ccc0000000000000000cccc00ccc00000000000000ccc00000000000000000000000000000000000000000000000
+000000cc00000cc000000000000000ccc0000ccc000000000000000ccc0000cc00000000000000cc000000000000000000000000000000000000000000000000
+000000c00000000c00000000000000c00000000c00000000000000c00000000c000000000000000c000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
@@ -965,40 +1206,6 @@ __gfx__
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000000000000000c00000c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0000c00000c000000000ccccccc000000000c00000c00000000c00000c000000000c00000c00000007700000c0000000000c00000c0000000000c00000c00000
-0000ccccccc000000000cc1cc1c000000000ccccccc00000000ccccccc000000000ccccccc0000007777ccccc0000000000ccccccc0000000000ccccccc00000
-0000cc1cc1c000000000cc1cc1c000000000cc1cc1c00000000cc1cc1c000000000cc1cc1c00000077771cc1c0000000000cc1cc1c0000000000cc1cc1c00000
-0000cc1cc1c000000000ccccccc000000000cc1cc1c00000000cc1cc1c000000000cc1cc1c00000077771cc1c0000000000cc1cc1c0000000000cc1cc1c00000
-0000ccccccc00000000000cc000000000000ccccccc00000000ccccccc000000000ccccccc000000077cccccc0000000077ccccccc0000000000ccccccc00000
-000000cc0000000000000cccc0000000000000cc00000000000000cc00000000000000cc000000000070cc000000000077770cc00000000000000cc770000000
-00000cccc000000000000cccc000000000000cccc000000000000cccc000000000000cccc0000000007cccc0000000007777cccc0000000000000cc777000000
-00000cccc000000000000cccc000000000000cccc000000000000cccc000000000000cccc0000000000cccc00000000007777ccc0000000000000cc777700000
-00000cccc000000000000ccccc00000000000cccc000000000000cccc000000000000cccc00000000000cccc000000000000c7cc0000000000000cccc7700000
-00000cccc00000000000c0000000000000000cccc000000000000cccc000000000000cccc00000000000cccc000000000000cccc0000000000000cccc0000000
-00000c00c000000000000000000000000000000c00000000000000000c0000000000000c000000000000c000c00000000000c000c00000000000c000c0000000
-00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0000000000000000000000000000c00000c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0000000000000000000000000000ccccccc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0000000000000000000000000000cc1cc1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0000000000000000000000000000cc1cc1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000c00000c0000000000000000cc1cc1c0000000000000000000000000000000000000000000000000000000000000000000000000000000000c00000c0000
-00000ccccccc0000000000000000ccccccc000000000000000000000000000000000000000000000000000000000000000000c00000c000000000ccccccc0000
-00000cc1cc1c00000000000000000ccc000000000000000000000000000000000000000000000000000000000000000000000ccccccc000000000cc1cc1c0000
-00000cc1cc1c0770000000000000ccccc00000000000000000000000000000000000000000000000000000000000000000000cc1cc1c000000000cc1cc1c0000
-00000ccccccc7777000000000000cccccc0000000000000000000000000000000000000000000000000000000000000000000cc1cc1c000000000ccccccc0000
-0000000cc0077777000000000000cccccc000000000000000000000000000000000000000000000000000000000000000000000cc00000000000000cc0000000
-000000cccc077770000000000000cccccc00000000000000000000000000000000000000000000000000000000000000000000cccc000000000000cccc070000
-000000cccc700000000000000000cccccc00000000000000000000000000000000000000000000000000000000000000000000cccc000000000000cc77700000
-000000cccc000000000000000000cccccc00000000000000000000000000000000000000000000000000000000000000000000cccc000000000000c777700000
-00000ccccc000000000000000000cc00cc00000000000000000000000000000000000000000000000000000000000000000000cccc000000000000c777700000
-000000000c000000000000000000c0000c0000000000000000000000000000000000000000000000000000000000000000000c000c00000000000c0777000000
 __gff__
 0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
