@@ -1,6 +1,21 @@
 pico-8 cartridge // http://www.pico-8.com
 version 8
 __lua__
+
+-- TODO
+-- mechanics:
+--   gain super
+--   gain score
+--   lose lives
+--   gain lives
+--   run out of time
+--   activate supers
+--   advance to levels
+--   ball speeds up throughout rally
+-- effects:
+--   ball trail
+--   charge-up effects
+
 -- constants
 tile_width=4
 tile_height=4
@@ -12,6 +27,8 @@ time_frames=0
 actual_super=0
 visual_super=0
 lives=0
+combo_count=0
+combo_text=nil
 game_top=0
 game_bottom=num_rows*tile_height
 game_left=0
@@ -262,9 +279,21 @@ entity_classes={
 								ball.has_hit_court=false
 								ball.can_hit_court=false
 								ball.should_downgrade_power=false
-								freeze_frames=max(freeze_frames,3)
 								if hitbox.is_sweet then
-									freeze_frames=max(freeze_frames,45)
+									freeze_frames=max(freeze_frames,5)
+									create_entity("party_text",{
+										["x"]=entity.x+entity.width/2+2,
+										["y"]=entity.y-2,
+										["text"]="perfect"
+									})
+								elseif hitbox.is_sour then
+									create_entity("dead_text",{
+										["x"]=entity.x+entity.width/2+2,
+										["y"]=entity.y-2,
+										["text"]="poor"
+									})
+								else
+									freeze_frames=max(freeze_frames,3)
 								end
 								break
 							end
@@ -420,7 +449,7 @@ entity_classes={
 			foreach(tiles_hit,function(tile)
 				if num_tiles_hit<max_tiles_hit then
 					num_tiles_hit+=1
-					freeze_frames=max(freeze_frames,3)
+					freeze_frames=max(freeze_frames,2)
 					tile.on_hit(tile,entity,dir)
 				end
 			end)
@@ -434,7 +463,7 @@ entity_classes={
 		end,
 		["check_for_power_level_change"]=function(entity)
 			-- check to see if the power level has changed
-			local new_power_level=entity.power_level
+			local old_power_level=entity.power_level
 			if entity.power_level>1 and entity.has_hit_court then
 				entity.set_power_level(entity,1)
 				entity.has_hit_court=false
@@ -466,6 +495,17 @@ entity_classes={
 			end
 			entity.gravity=entity.gravity_by_power_level[min(entity.power_level,4)]
 			entity.vertical_energy=max(0.75,0.5*entity.vy*entity.vy+entity.gravity*(num_rows*tile_height-entity.height-entity.y))
+			if entity.power_level<=1 then
+				combo_count=0
+				if combo_text.display then
+					combo_text.display=false
+					create_entity("dead_text",{
+						["x"]=combo_text.x,
+						["y"]=combo_text.y-1,
+						["text"]=combo_text.text
+					})
+				end
+			end
 		end,
 		["draw"]=function(entity)
 			local x=entity.x+0.5
@@ -555,6 +595,84 @@ entity_classes={
 			-- circ(entity.x,entity.y,entity.frames_alive*4,11)
 			-- circ(entity.x,entity.y,entity.frames_alive*5,10)
 		end	
+	},
+	["shaky_text"]={
+		["init"]=function(entity,args)
+			entity.x=args.x
+			entity.y=args.y
+			entity.text=args.text
+			entity.display=args.display
+			entity.shakiness_frames=0
+		end,
+		["update"]=function(entity)
+			if entity.shakiness_frames>0 then
+				entity.shakiness_frames-=1
+			end
+		end,
+		["draw"]=function(entity)
+			if entity.display then
+				local wiggle=0
+				if entity.shakiness_frames>0 then
+					wiggle=2*(entity.shakiness_frames%2)-1
+				end
+				local x=entity.x-2*#entity.text+wiggle
+				if entity.shakiness_frames>7 and rnd()<(entity.shakiness_frames-7)/4 then
+					print(entity.text,x+rnd(3)-1,entity.y+rnd(3)-1,8+rnd(5))
+				end
+				print(entity.text,x,entity.y,7)
+			end
+		end
+	},
+	["dead_text"]={
+		["init"]=function(entity,args)
+			entity.x=args.x
+			entity.y=args.y
+			entity.vy=-0.6
+			entity.text=args.text
+		end,
+		["update"]=function(entity)
+			entity.vy+=0.08
+			entity.y+=entity.vy
+			if entity.frames_alive>20 then
+				entity.is_alive=false
+			end
+		end,
+		["draw"]=function(entity)
+			local x=entity.x-2*#entity.text
+			if entity.frames_alive<10 then
+				color(6)
+			elseif entity.frames_alive<16 then
+				color(13)
+			else
+				color(5)
+			end
+			print(entity.text,x,entity.y)
+		end
+	},
+	["party_text"]={
+		["init"]=function(entity,args)
+			entity.x=args.x
+			entity.y=args.y
+			entity.text=args.text
+		end,
+		["update"]=function(entity)
+			if entity.frames_alive>30 then
+				entity.is_alive=false
+			end
+		end,
+		["draw"]=function(entity)
+			local i
+			local x=entity.x-2*#entity.text
+			color(7)
+			local colors={8,9,10,11,12,14,15}
+			for i=1,#entity.text do
+				local t=entity.frames_alive-i
+				local y=entity.y-1.5*t+0.08*t*t
+				if t>=0 and t<24 then
+					print(sub(entity.text,i,i),x+4*i,y,colors[(i-1)%#colors+1])
+				end
+			end
+		end
 	}
 }
 tile_legend={
@@ -722,6 +840,13 @@ function init_game()
 		["vx"]=-0.5,
 		["vy"]=-1
 	})
+	combo_count=0
+	combo_text=create_entity("shaky_text",{
+		["text"]="0 combo",
+		["display"]=false,
+		["x"]=game_mid,
+		["y"]=5
+	})
 	foreach(new_entities,add_entity_to_game)
 	new_entities={}
 end
@@ -875,6 +1000,12 @@ function create_tile(symbol,col,row)
 			tile.hp-=1
 			if tile.hp<=0 then
 				tiles[tile.col][tile.row]=false
+				combo_count+=1
+				combo_text.text=combo_count.." hit combo"
+				combo_text.shakiness_frames=mid(3,combo_count,25)
+				if combo_count>=3 then
+					combo_text.display=true
+				end
 			else
 				tile.sprite+=1
 			end
