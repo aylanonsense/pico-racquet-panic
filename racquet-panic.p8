@@ -5,20 +5,23 @@ __lua__
 tile_width=4
 tile_height=4
 num_cols=31
-num_rows=13
+num_rows=14
 level_num=1
 score=0
 time_frames=0
+actual_super=0
+visual_super=0
+lives=0
 game_top=0
 game_bottom=num_rows*tile_height
 game_left=0
 game_right=num_cols*tile_width
-game_mid=flr((num_cols/2)*tile_width)
+game_mid=flr((game_right-game_left)/2)
 camera_offset_x=2
-camera_offset_y=32
+camera_offset_y=36
 entity_classes={
 	["player"]={
-		["width"]=16,
+		["width"]=21,
 		["height"]=24,
 		["swing_id"]=0,
 		["swing_part"]=1,
@@ -585,19 +588,20 @@ tile_legend={
 levels={
 	{
 		["tile_map"]={
-			"ggggggg ggg gg g gg ggg ggggggg",
-			"               rrrr     gg  ee ",
-			"               r        gg  ee ",
-			"               r    yygggg     ",
-			"               r   yyyyygggy   ",
-			"               r   yy yyyyyyy  ",
-			"               r   yyyyyy yyy  ",
-			"               r   y yyyyyyyy  ",
-			"               r   yy  y y yy  ",
-			"               r    yy    yyy  ",
-			"               r      yyyyy    ",
-			"               sss             ",
-			"g              sss            g"
+			"                               ",
+			"                               ",
+			"                        gg     ",
+			"                     gg gg     ",
+			"                    yygggg g   ",
+			"                   yyyyggggy   ",
+			"                   yy yyyyyyy  ",
+			"                   yyyyyy yyy  ",
+			"                   y yyyyyyyy  ",
+			"                   yy  y y yy  ",
+			"                    yy    yyy  ",
+			"                      yyyyy    ",
+			"                               ",
+			"                               "
 		}
 	}
 }
@@ -661,8 +665,18 @@ function _draw()
 	elseif scene=="game" then
 		draw_game()
 	end
-end
 
+	-- draw guidelines
+	-- camera()
+	-- line(0,0,0,127,8)
+	-- line(62,0,62,127,8)
+	-- line(65,0,65,127,8)
+	-- line(127,0,127,127,8)
+	-- line(0,0,127,0,8)
+	-- line(0,62,127,62,8)
+	-- line(0,65,127,65,8)
+	-- line(0,127,127,127,8)
+end
 
 -- title screen methods
 function init_title_screen()
@@ -687,6 +701,9 @@ function init_game()
 	level_num=1
 	score=5320
 	time_frames=3000
+	actual_super=0
+	visual_super=0
+	lives=4
 	bg_color=1
 	balls={}
 	entities={}
@@ -717,6 +734,10 @@ function update_game()
 
 	if time_frames>0 then
 		time_frames-=1
+	end
+	actual_super=40
+	if visual_super<actual_super then
+		visual_super+=1
 	end
 
 	-- update entities
@@ -750,18 +771,20 @@ function draw_game()
 	foreach(entities,draw_entity)
 
 	-- block off some areas in black
-	camera()
-	local y_bottom=camera_offset_y+tile_height*num_rows
-	rectfill(0,0,127,camera_offset_y-1,0)
-	rectfill(0,y_bottom,127,127,0)
-	rectfill(0,0,camera_offset_x-1,127,0)
-	rectfill(camera_offset_x+tile_width*num_cols,0,127,127,0)
+	rectfill(-999,-999,-1,999,0) -- left
+	rectfill(num_cols*tile_width,-999,999,999,0) -- right
+	rectfill(-999,-999,999,-1,0) -- top
+	rectfill(-999,num_rows*tile_height,999,999,0) -- bottom]
 
-	-- rect(game_mid-16,y_bottom+2,game_mid,y_bottom+16,5)
-	-- rect(0,y_bottom+2,game_mid-18,y_bottom+8,5)
-
-	-- draw level number
-	print("lvl "..level_num,2,camera_offset_y-7,7)
+	-- draw lives
+	local i
+	for i=1,5 do
+		if lives>=i then
+			rectfill(-4+4*i,-5,-2+4*i,-3,7)
+		else
+			rect(-4+4*i,-5,-2+4*i,-3,1)
+		end
+	end
 
 	-- draw timer
 	local seconds=flr(time_frames/30)%60
@@ -771,7 +794,7 @@ function draw_game()
 		timer=timer.."0"
 	end
 	timer=timer..seconds
-	print(timer,56,camera_offset_y-7,7)
+	print(timer,game_mid-8,-7,7)
 
 	-- draw score
 	local score_text
@@ -782,15 +805,30 @@ function draw_game()
 	end
 	local i
 	for i=1,#score_text do
-		print(sub(score_text,i,i),123-4*(#score_text-i),camera_offset_y-7,7)
+		print(sub(score_text,i,i),game_right-3-4*(#score_text-i),-7,7)
 	end
-	-- print(score,100,camera_offset_y-7,7)
 
-	-- line(0,y_bottom,game_mid,y_bottom,5)
-	-- rect(game_left,y_bottom+2,game_mid,y_bottom+10,7)
-	-- rect(game_left+camera_offset_x-1,camera_offset_y+game_top-1,game_right+camera_offset_x,camera_offset_y+game_bottom,7)
-	-- rectfill(0,0,127,camera_offset_y-1,0)
-	-- rectfill(0,camera_offset_y+num_rows*tile_height,127,127,0)
+	-- draw super bar
+	rectfill(0,game_bottom+2,visual_super/100*(game_mid-7),game_bottom+6,12)
+	rect(0,game_bottom+2,game_mid-7,game_bottom+6,7)
+
+	-- draw power up
+	-- rectfill(game_mid-4,game_bottom+1,game_mid+2,game_bottom+7,7)
+	rect(game_mid-3,game_bottom+2,game_mid+1,game_bottom+6,1)
+
+	-- draw press x
+	if scene_frame%16<8 then
+		print("press x",game_mid+5,game_bottom+2,7)
+	end
+
+	-- draw level number
+	local level_text
+	if level_num<10 then
+		level_text="0"..level_num
+	else
+		level_text=level_num
+	end
+	print("lvl "..level_text,game_right-23,game_bottom+2,7)
 end
 
 
